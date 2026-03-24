@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:wqhub/game_client/game.dart';
 import 'package:wqhub/game_client/game_result.dart';
+import 'package:wqhub/game_client/game_timer.dart';
 import 'package:wqhub/game_client/automatic_counting_info.dart';
 import 'package:wqhub/game_client/counting_result.dart';
 import 'package:wqhub/wq/wq.dart' as wq;
 import 'package:wqhub/game_client/time_control/time_control.dart';
+import 'package:wqhub/game_client/time_control/canadian_byoyomi.dart';
 import 'pandanet_tcp_manager.dart';
 import 'package:wqhub/game_client/rules.dart';
 
@@ -16,6 +18,9 @@ class PandanetGame extends Game {
   final _automaticCountingController = StreamController<bool>.broadcast();
   final _countingResultController =
       StreamController<CountingResult>.broadcast();
+
+  late final GameTimer _blackTimer;
+  late final GameTimer _whiteTimer;
 
   GameResult? _lastResult;
   StreamSubscription<String>? _sub;
@@ -72,6 +77,24 @@ class PandanetGame extends Game {
           previousMoves: previousMoves,
         ) {
     _resultCompleter = Completer<GameResult>();
+
+    final initialTimeState = timeControl.initialState();
+    _blackTimer = GameTimer(
+      timeControl: timeControl,
+      initialState: initialTimeState,
+    );
+    _whiteTimer = GameTimer(
+      timeControl: timeControl,
+      initialState: initialTimeState,
+    );
+
+    _blackTimer.addListener(() {
+      blackTime.value = _blackTimer.value;
+    });
+    _whiteTimer.addListener(() {
+      whiteTime.value = _whiteTimer.value;
+    });
+
     _sub = tcp.messages.listen(_onMessage, onError: (_) {
       if (!_resultCompleter.isCompleted) {
         _resultCompleter.completeError('Connection lost before game finished');
@@ -91,13 +114,17 @@ class PandanetGame extends Game {
           .where((c) => c != 'I')
           .toList(growable: false);
 
+  /// Track the last parsed TIME states for black and white, so we can
+  /// start the correct timer after a move is received.
+  CanadianByoyomiTimeState? _pendingBlackTime;
+  CanadianByoyomiTimeState? _pendingWhiteTime;
+
   void _onMessage(String line) {
     final text = line.trim();
 
     final handiMatch = RegExp(r'\(B\):\s*Handicap\s+(\d+)').firstMatch(text);
     if (handiMatch != null) {
       final handiCount = int.parse(handiMatch.group(1)!);
-      print('Detected handicap: $handiCount (emitting stones)');
 
       if (handiCount >= 2) {
         final pts = handicapPoints19(handiCount.clamp(2, 9));
@@ -108,8 +135,37 @@ class PandanetGame extends Game {
       return;
     }
 
-    final isThisGame = RegExp(r'Game\s+$id\b').hasMatch(text) ||
-        RegExp(r'\{Game\s+$id\b').hasMatch(text);
+    // Parse TIME messages:
+    // 15 TIME:<game_id>:<player>(<color>): <move> <main_used>/<main_total> <byo_used>/<byo_total> <stones_used>/<stones_total> ...
+    final timeMatch = RegExp(
+      r'15 TIME:\d+:\w+\(([BW])\):\s*\d+\s+(\d+)/(\d+)\s+(\d+)/(\d+)\s+(\d+)/(\d+)',
+    ).firstMatch(text);
+    if (timeMatch != null) {
+      final color = timeMatch.group(1)!;
+      final mainUsed = int.parse(timeMatch.group(2)!);
+      final mainTotal = int.parse(timeMatch.group(3)!);
+      final byoUsed = int.parse(timeMatch.group(4)!);
+      final byoTotal = int.parse(timeMatch.group(5)!);
+      final stonesUsed = int.parse(timeMatch.group(6)!);
+      final stonesTotal = int.parse(timeMatch.group(7)!);
+
+      final state = CanadianByoyomiTimeState(
+        mainTimeLeft: Duration(seconds: mainTotal - mainUsed),
+        periodTimeLeft: Duration(seconds: byoTotal - byoUsed),
+        stonesRemaining: stonesTotal - stonesUsed,
+        stonesPerPeriod: stonesTotal,
+      );
+
+      if (color == 'B') {
+        _pendingBlackTime = state;
+      } else {
+        _pendingWhiteTime = state;
+      }
+      return;
+    }
+
+    final isThisGame = RegExp('Game\\s+$id\\b').hasMatch(text) ||
+        RegExp('\\{Game\\s+$id\\b').hasMatch(text);
     final isMoveLine = RegExp(r'^\s*15\s+\d+\s*\([BW]\):').hasMatch(text) ||
         RegExp(r'\(\s*[BW]\s*\):\s*[A-Ta-t]\d{1,2}').hasMatch(text);
 
@@ -136,13 +192,18 @@ class PandanetGame extends Game {
       final col = mv.group(1) == 'B' ? wq.Color.black : wq.Color.white;
       final parsed = parseCoordinate(mv.group(2)!);
       _moveController.add((col: col, p: parsed));
+
+      // Update timers: the player who just moved stops; the next player starts
+      _applyPendingTimers(lastMoveColor: col);
       return;
     }
 
     final rz =
-        RegExp(r'Game\s+$id:.*:\s+(Black|White)\s+resigns').firstMatch(text);
+        RegExp('Game\\s+$id:.*:\\s+(Black|White)\\s+resigns').firstMatch(text);
     if (rz != null && _lastResult == null) {
       final loser = rz.group(1) == 'Black' ? wq.Color.black : wq.Color.white;
+      _blackTimer.stop();
+      _whiteTimer.stop();
       _finalizeResult(GameResult(
         winner: loser == wq.Color.black ? wq.Color.white : wq.Color.black,
         result: 'Resign',
@@ -155,12 +216,54 @@ class PandanetGame extends Game {
     if (fin != null && _lastResult == null) {
       final winner = fin.group(1) == 'B' ? wq.Color.black : wq.Color.white;
       final desc = fin.group(2)!;
+      _blackTimer.stop();
+      _whiteTimer.stop();
       _finalizeResult(GameResult(
         winner: winner,
         result: desc,
         description: null,
       ));
       return;
+    }
+
+    // Handle time forfeit
+    if (text.contains('forfeits on time') && _lastResult == null) {
+      final whiteForfeits = text.contains('White forfeits');
+      _blackTimer.stop();
+      _whiteTimer.stop();
+      _finalizeResult(GameResult(
+        winner: whiteForfeits ? wq.Color.black : wq.Color.white,
+        result: 'Time',
+        description: null,
+      ));
+      return;
+    }
+  }
+
+  void _applyPendingTimers({required wq.Color lastMoveColor}) {
+    // Update both timer states from server data if available
+    if (_pendingBlackTime != null) {
+      _blackTimer.stop();
+      if (lastMoveColor == wq.Color.white) {
+        // Black's turn next → start black timer
+        _blackTimer.start(_pendingBlackTime!);
+      } else {
+        // Black just moved → show updated state but don't run
+        blackTime.value = (blackTime.value.$1 + 1, _pendingBlackTime!);
+      }
+      _pendingBlackTime = null;
+    }
+
+    if (_pendingWhiteTime != null) {
+      _whiteTimer.stop();
+      if (lastMoveColor == wq.Color.black) {
+        // White's turn next → start white timer
+        _whiteTimer.start(_pendingWhiteTime!);
+      } else {
+        // White just moved → show updated state but don't run
+        whiteTime.value = (whiteTime.value.$1 + 1, _pendingWhiteTime!);
+      }
+      _pendingWhiteTime = null;
     }
   }
 
@@ -257,6 +360,8 @@ class PandanetGame extends Game {
 
   void dispose() {
     _sub?.cancel();
+    _blackTimer.dispose();
+    _whiteTimer.dispose();
     _moveController.close();
     _automaticCountingController.close();
     _countingResultController.close();

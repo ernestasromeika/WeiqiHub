@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:logging/logging.dart';
 import 'game_utils.dart';
+import 'seek_config.dart';
 
 class PandaUserStats {
   final String player;
@@ -32,6 +33,8 @@ class PandanetTcpManager {
   final List<String> _whoBuffer = [];
   Completer<PandaUserStats>? _statsCompleter;
   Completer<List<Map<String, String>>>? _whoCompleter;
+  Completer<List<SeekConfig>>? _seekConfigCompleter;
+  final List<String> _seekConfigBuffer = [];
   final List<String> _buffer = [];
 
   Future<void> connect(String username, String password) async {
@@ -54,6 +57,10 @@ class PandanetTcpManager {
       _socket!.writeln(username);
       await Future.delayed(const Duration(milliseconds: 300));
       _socket!.writeln(password);
+      await Future.delayed(const Duration(milliseconds: 300));
+      _socket!.writeln('toggle client true');
+      _socket!.writeln('toggle nmatch true');
+      _socket!.writeln('toggle seek true');
     } catch (e, st) {
       _connected = false;
       _logger.severe('Connection error: $e:$st');
@@ -83,6 +90,29 @@ class PandanetTcpManager {
         continue;
       }
 
+      // Buffer seek config lines
+      if (line.startsWith('63 CONFIG_LIST')) {
+        _seekConfigBuffer.add(line);
+        continue;
+      }
+      if (line.startsWith('63 CONFIG_LIST_END') ||
+          ((line.startsWith('1 5') || line.startsWith('1 6')) &&
+              _seekConfigBuffer.isNotEmpty)) {
+        _finishSeekConfigBuffer();
+        if (line.startsWith('1 5') || line.startsWith('1 6')) {
+          // Don't skip; fall through so the prompt is handled normally
+        } else {
+          continue;
+        }
+      }
+
+      // Pass 63 prefixed messages directly to the stream (for OPPONENT_FOUND, ENTRY, etc.)
+      if (line.startsWith('63 ')) {
+        _logger.fine('<<< $line');
+        _incoming.add(line);
+        continue;
+      }
+
       _buffer.add(line);
 
       if (line.startsWith('1 5') || line.startsWith('1 6')) {
@@ -91,6 +121,43 @@ class PandanetTcpManager {
         _handleFullMessage(msg);
       }
     }
+  }
+
+  void _finishSeekConfigBuffer() {
+    final configs = _parseSeekConfigs(_seekConfigBuffer);
+    _seekConfigBuffer.clear();
+    if (_seekConfigCompleter != null && !_seekConfigCompleter!.isCompleted) {
+      _seekConfigCompleter!.complete(configs);
+    }
+  }
+
+  List<SeekConfig> _parseSeekConfigs(List<String> lines) {
+    final configs = <SeekConfig>[];
+    for (final line in lines) {
+      // 63 CONFIG_LIST <id> <main_sec> <byo_sec> <stones> <unk1> <unk2>
+      // Also handle CONFIG_LIST_START
+      if (line.contains('CONFIG_LIST_START') ||
+          line.contains('CONFIG_LIST_END')) {
+        continue;
+      }
+      final parts = line.split(RegExp(r'\s+'));
+      // Expected: ['63', 'CONFIG_LIST', id, main, byo, stones, unk1, unk2]
+      if (parts.length >= 6) {
+        final id = int.tryParse(parts[2]);
+        final mainSec = int.tryParse(parts[3]);
+        final byoSec = int.tryParse(parts[4]);
+        final stones = int.tryParse(parts[5]);
+        if (id != null && mainSec != null && byoSec != null && stones != null) {
+          configs.add(SeekConfig(
+            id: id,
+            mainTime: Duration(seconds: mainSec),
+            periodTime: Duration(seconds: byoSec),
+            stonesPerPeriod: stones,
+          ));
+        }
+      }
+    }
+    return configs;
   }
 
   List<Map<String, String>> _parseWho(String text) {
@@ -196,6 +263,28 @@ class PandanetTcpManager {
       const Duration(seconds: 5),
       onTimeout: () => throw Exception('Who response timeout'),
     );
+  }
+
+  Future<List<SeekConfig>> getSeekConfigs() async {
+    if (!_connected || _socket == null) throw Exception('Not connected');
+    _seekConfigCompleter = Completer<List<SeekConfig>>();
+    _seekConfigBuffer.clear();
+
+    _socket!.writeln('seek config_list');
+    _logger.fine('>>> seek config_list');
+
+    return _seekConfigCompleter!.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => throw Exception('Seek config_list response timeout'),
+    );
+  }
+
+  void sendSeekEntry(int configId, int boardSize) {
+    send('seek entry $configId $boardSize');
+  }
+
+  void sendSeekCancel() {
+    send('seek entry_cancel');
   }
 
   void send(String command) {

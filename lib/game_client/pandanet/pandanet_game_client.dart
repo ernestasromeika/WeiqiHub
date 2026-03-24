@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -11,17 +10,16 @@ import 'package:wqhub/game_client/game_record.dart';
 import 'package:wqhub/game_client/rules.dart';
 import 'package:wqhub/game_client/server_features.dart';
 import 'package:wqhub/game_client/server_info.dart';
-import 'package:wqhub/game_client/time_control/japanese_byoyomi.dart';
+import 'package:wqhub/game_client/time_control/canadian_byoyomi.dart';
 import 'package:wqhub/game_client/user_info.dart';
 import 'pandanet_sgf_parser.dart';
 import 'pandanet_html_parser.dart';
 import 'pandanet_tcp_manager.dart';
 import 'pandanet_game.dart';
+import 'seek_config.dart';
 import 'game_utils.dart';
 import 'package:wqhub/wq/wq.dart' as wq;
 import 'package:wqhub/wq/rank.dart';
-
-String? _currentGameId;
 
 class PandaNetGameClient extends GameClient {
   final Logger _logger = Logger('PandaNetGameClient');
@@ -32,6 +30,8 @@ class PandaNetGameClient extends GameClient {
   final ValueNotifier<DateTime> _disconnected = ValueNotifier(DateTime.now());
   final http.Client _httpClient = http.Client();
   final PandanetTcpManager _tcpManager = PandanetTcpManager();
+
+  List<SeekConfig> _seekConfigs = [];
 
   final String serverUrl = 'https://pandanet-igs.com/';
   final String apiUrl = 'https://my.pandanet.co.jp/';
@@ -68,45 +68,57 @@ class PandaNetGameClient extends GameClient {
       ValueNotifier(const IMapConst({}));
 
   @override
-  IList<AutomatchPreset> get automatchPresets => _createAutomatchPresets();
+  IList<AutomatchPreset> get automatchPresets => _buildAutomatchPresets();
 
-  static IList<AutomatchPreset> _createAutomatchPresets() {
-    const speeds = ['blitz', 'rapid', 'fast', 'slow'];
-    final timeControls = {
-      'blitz': JapaneseByoyomiTimeControl(
-        mainTime: Duration(minutes: 100),
-        periodCount: 1,
-        timePerPeriod: Duration(minutes: 5),
-      ),
-      'rapid': JapaneseByoyomiTimeControl(
-        mainTime: Duration(minutes: 100),
-        periodCount: 1,
-        timePerPeriod: Duration(minutes: 7),
-      ),
-      'fast': JapaneseByoyomiTimeControl(
-        mainTime: Duration(minutes: 100),
-        periodCount: 1,
-        timePerPeriod: Duration(minutes: 10),
-      ),
-      'slow': JapaneseByoyomiTimeControl(
-        mainTime: Duration(minutes: 100),
-        periodCount: 1,
-        timePerPeriod: Duration(minutes: 15),
-      ),
-    };
-
+  IList<AutomatchPreset> _buildAutomatchPresets() {
+    final configs =
+        _seekConfigs.isNotEmpty ? _seekConfigs : _fallbackSeekConfigs;
     final presets = <AutomatchPreset>[];
-    for (final speed in speeds) {
-      presets.add(AutomatchPreset(
-        id: '19x19_$speed',
-        boardSize: 19,
-        variant: Variant.standard,
-        rules: Rules.japanese,
-        timeControl: timeControls[speed]!,
-      ));
+
+    for (final config in configs) {
+      for (final boardSize in [9, 13, 19]) {
+        presets.add(AutomatchPreset(
+          id: 'seek_${config.id}_$boardSize',
+          boardSize: boardSize,
+          variant: Variant.standard,
+          rules: Rules.japanese,
+          timeControl: CanadianByoyomiTimeControl(
+            mainTime: config.mainTime,
+            periodTime: config.periodTime,
+            stonesPerPeriod: config.stonesPerPeriod,
+          ),
+        ));
+      }
     }
     return presets.lock;
   }
+
+  static final List<SeekConfig> _fallbackSeekConfigs = [
+    const SeekConfig(
+      id: 0,
+      mainTime: Duration(seconds: 60),
+      periodTime: Duration(seconds: 600),
+      stonesPerPeriod: 25,
+    ),
+    const SeekConfig(
+      id: 1,
+      mainTime: Duration(seconds: 60),
+      periodTime: Duration(seconds: 420),
+      stonesPerPeriod: 25,
+    ),
+    const SeekConfig(
+      id: 2,
+      mainTime: Duration(seconds: 60),
+      periodTime: Duration(seconds: 300),
+      stonesPerPeriod: 25,
+    ),
+    const SeekConfig(
+      id: 3,
+      mainTime: Duration(seconds: 60),
+      periodTime: Duration(seconds: 900),
+      stonesPerPeriod: 25,
+    ),
+  ];
 
   @override
   Future<ReadyInfo> ready() async => ReadyInfo();
@@ -140,6 +152,16 @@ class PandaNetGameClient extends GameClient {
 
       _userInfo.value = user;
       _password.value = password;
+
+      // Fetch seek configs after login
+      try {
+        _seekConfigs = await _tcpManager.getSeekConfigs();
+        _logger.info('Fetched ${_seekConfigs.length} seek configs');
+      } catch (e) {
+        _logger.warning('Failed to fetch seek configs, using fallbacks: $e');
+        _seekConfigs = [];
+      }
+
       return user;
     } catch (e, st) {
       _logger.warning('Login error: $e:$st');
@@ -151,6 +173,7 @@ class PandaNetGameClient extends GameClient {
   void logout() {
     _userInfo.value = null;
     _password.value = '';
+    _seekConfigs = [];
     try {
       _tcpManager.close();
     } catch (e) {
@@ -168,6 +191,16 @@ class PandaNetGameClient extends GameClient {
       throw Exception('Not logged in');
     }
 
+    // Parse preset ID: seek_<configId>_<boardSize>
+    final parts = presetId.split('_');
+    int configId = 0;
+    int boardSize = 19;
+    if (parts.length >= 3 && parts[0] == 'seek') {
+      configId = int.tryParse(parts[1]) ?? 0;
+      boardSize = int.tryParse(parts[2]) ?? 19;
+    }
+
+    // Find the matching preset to get its time control
     final preset = automatchPresets.firstWhere(
       (p) => p.id == presetId,
       orElse: () => automatchPresets.first,
@@ -184,128 +217,122 @@ class PandaNetGameClient extends GameClient {
     String? whitePlayer;
     String? blackPlayer;
     int handicap = 0;
-
-    // Request players near our rank
-    const range = '3k-1d';
-    _logger.info('Requesting who $range');
-    List<Map<String, String>> whoList = [];
-    try {
-      whoList = await _tcpManager
-          .getWho(range: range)
-          .timeout(const Duration(seconds: 3));
-      _logger.info('Fetched ${whoList.length} players within $range');
-    } catch (e) {
-      _logger.warning('getWho() failed or timed out: $e');
-    }
+    double komi = 6.5;
+    CanadianByoyomiTimeControl? timeControl;
 
     subscription = _tcpManager.messages.listen((message) {
-      if (message.contains('15 Game') && message.contains('accepted')) {
-        _logger.info('Detected accepted match: $message');
+      final text = message.trim();
 
-        final gameIdMatch = RegExp(r'15 Game (\d+)').firstMatch(message);
+      // 63 OPPONENT_FOUND <opponent>
+      if (text.startsWith('63 OPPONENT_FOUND')) {
+        final opponent = text.split(' ').length > 2 ? text.split(' ')[2] : '';
+        _logger.info('Opponent found: $opponent');
+      }
+
+      // 15 Game <id> I: <white> (...) vs <black> (...)
+      if (text.contains('15 Game') && text.contains(' I: ') && text.contains(' vs ')) {
+        final gameIdMatch = RegExp(r'15 Game (\d+)').firstMatch(text);
         final playersMatch =
-            RegExp(r'I:\s*(\w+).*\s+vs\s+(\w+)').firstMatch(message);
+            RegExp(r'I:\s*(\w+)\s*\(.*?\)\s*vs\s+(\w+)').firstMatch(text);
 
         gameId = gameIdMatch?.group(1);
         whitePlayer = playersMatch?.group(1);
         blackPlayer = playersMatch?.group(2);
+        _logger.info('Game line: id=$gameId, white=$whitePlayer, black=$blackPlayer');
+      }
 
-        final handicapMatch = RegExp(r'Handicap\s+(\d+)').firstMatch(message);
-        handicap = handicapMatch != null
-            ? int.tryParse(handicapMatch.group(1)!) ?? 0
-            : 0;
+      // 15 TIME:<id>:<player>(<color>): <move> <main_used>/<main_total> <byo_used>/<byo_total> <stones_used>/<stones_total> ...
+      // Parse to extract actual time control params from first TIME line
+      final timeMatch = RegExp(
+        r'15 TIME:\d+:\w+\([BW]\):\s*\d+\s+(\d+)/(\d+)\s+(\d+)/(\d+)\s+(\d+)/(\d+)',
+      ).firstMatch(text);
+      if (timeMatch != null && timeControl == null) {
+        final mainTotal = int.parse(timeMatch.group(2)!);
+        final byoTotal = int.parse(timeMatch.group(4)!);
+        final stonesTotal = int.parse(timeMatch.group(6)!);
+        timeControl = CanadianByoyomiTimeControl(
+          mainTime: Duration(seconds: mainTotal),
+          periodTime: Duration(seconds: byoTotal),
+          stonesPerPeriod: stonesTotal,
+        );
+        _logger.info(
+          'Time control from server: main=${mainTotal}s, byo=${byoTotal}s, stones=$stonesTotal',
+        );
+      }
 
-        if (gameId != null && whitePlayer != null && blackPlayer != null) {
-          final myColor =
-              username == whitePlayer ? wq.Color.white : wq.Color.black;
+      // 15 GAMERPROPS:<id>: <board_size> <handicap> <komi>
+      final propsMatch = RegExp(
+        r'15 GAMERPROPS:\d+:\s*(\d+)\s+(\d+)\s+([\d.]+)',
+      ).firstMatch(text);
+      if (propsMatch != null) {
+        boardSize = int.parse(propsMatch.group(1)!);
+        handicap = int.parse(propsMatch.group(2)!);
+        komi = double.parse(propsMatch.group(3)!);
+        _logger.info('GAMERPROPS: board=$boardSize, handicap=$handicap, komi=$komi');
+      }
 
-          final previousMoves = <wq.Move>[];
-          if (handicap >= 2) {
-            final pts = PandanetGame.handicapPoints19(handicap.clamp(2, 9));
-            for (final p in pts) {
-              previousMoves.add((col: wq.Color.black, p: p));
-            }
+      // 9 Creating match [<id>] with <opponent>.
+      if (text.contains('Creating match') && gameId != null) {
+        final tc = timeControl ?? preset.timeControl as CanadianByoyomiTimeControl;
+
+        final myColor =
+            username == whitePlayer ? wq.Color.white : wq.Color.black;
+
+        final previousMoves = <wq.Move>[];
+        if (handicap >= 2) {
+          final pts = PandanetGame.handicapPoints19(handicap.clamp(2, 9));
+          for (final p in pts) {
+            previousMoves.add((col: wq.Color.black, p: p));
           }
+        }
 
-          final game = PandanetGame(
-            tcp: _tcpManager,
-            id: gameId!,
-            boardSize: preset.boardSize,
-            timeControl: preset.timeControl,
-            myColor: handicap > 0 ? wq.Color.white : myColor,
-            handicap: handicap,
-            komi: handicap > 0 ? 0.0 : 6.5,
-            previousMoves: previousMoves,
-          );
+        final game = PandanetGame(
+          tcp: _tcpManager,
+          id: gameId!,
+          boardSize: boardSize,
+          timeControl: tc,
+          myColor: handicap > 0 ? wq.Color.white : myColor,
+          handicap: handicap,
+          komi: komi,
+          previousMoves: previousMoves,
+        );
 
-          game.white.value = UserInfo.empty().copyWith(
-            userId: whitePlayer,
-            username: whitePlayer,
-            online: true,
-          );
-          game.black.value = UserInfo.empty().copyWith(
-            userId: blackPlayer,
-            username: blackPlayer,
-            online: true,
-          );
+        game.white.value = UserInfo.empty().copyWith(
+          userId: whitePlayer,
+          username: whitePlayer,
+          online: true,
+        );
+        game.black.value = UserInfo.empty().copyWith(
+          userId: blackPlayer,
+          username: blackPlayer,
+          online: true,
+        );
 
-          _logger.info(
-            'Game created: id=$gameId, white=$whitePlayer, black=$blackPlayer, '
-            'handicap=$handicap, myColor=${game.myColor.name}',
-          );
+        _logger.info(
+          'Game created: id=$gameId, white=$whitePlayer, black=$blackPlayer, '
+          'handicap=$handicap, komi=$komi, myColor=${game.myColor.name}',
+        );
 
-          subscription?.cancel();
+        subscription?.cancel();
+        if (!completer.isCompleted) {
           completer.complete(game);
         }
-      }
-
-      if (message.startsWith('36') &&
-          message.contains('wants a match with you')) {
-        final match = RegExp(r'36\s+(\S+)\s+wants a match').firstMatch(message);
-        if (match != null) {
-          final opponent = match.group(1)!;
-          _logger.info('Auto-accepting incoming match from $opponent');
-          _tcpManager.send('automatch $opponent');
-        }
-      }
-
-      if (message.contains('declines your request')) {
-        subscription?.cancel();
-        if (!completer.isCompleted) completer.completeError('Match declined');
       }
     }, onError: (e) {
       subscription?.cancel();
       if (!completer.isCompleted) completer.completeError(e);
     });
 
-    _logger.info('Sent match requests to ${whoList.length} candidates');
-
-    for (final p in whoList) {
-      if (completer.isCompleted) break;
-
-      final name = p['name'];
-      final rank = p['rank'];
-      if (name != null && rank != null && name != username) {
-        _logger.fine('Matching $name ($rank)');
-        _tcpManager.sendMatch(
-          name,
-          color: 'B',
-          main: 1,
-          overtime: 5,
-        );
-        await Future.delayed(const Duration(milliseconds: 100));
-      }
-    }
+    // Send seek entry
+    _logger.info('Sending seek entry: configId=$configId, boardSize=$boardSize');
+    _tcpManager.sendSeekEntry(configId, boardSize);
 
     return completer.future;
   }
 
   @override
   void stopAutomatch() {
-    final username = _userInfo.value?.username;
-    if (username != null && username.isNotEmpty) {
-      _tcpManager.sendUnmatch(username);
-    }
+    _tcpManager.sendSeekCancel();
   }
 
   @override
