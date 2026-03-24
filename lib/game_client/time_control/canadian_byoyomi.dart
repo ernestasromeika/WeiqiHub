@@ -51,11 +51,10 @@ class CanadianByoyomiTimeState extends TimeState {
     if (mainTimeLeft > Duration.zero || stonesPerPeriod == 0) {
       return timeSegments;
     } else {
-      // Overtime: show time + stones played/total
-      final stonesPlayed = stonesPerPeriod - stonesRemaining;
+      // Overtime: show time + moves remaining/total e.g. "3/25"
       return [
         ...timeSegments,
-        DisplaySegment(value: '$stonesPlayed/$stonesPerPeriod', isTime: false),
+        DisplaySegment(value: '$stonesRemaining/$stonesPerPeriod', isTime: false),
       ];
     }
   }

@@ -63,7 +63,7 @@ void main() {
       final segments = state.displaySegments;
       // Should show time segments + stones label
       expect(segments.last.isTime, false);
-      expect(segments.last.value, '10/25'); // 25 - 15 = 10 stones played
+      expect(segments.last.value, '15/25'); // 15 moves remaining out of 25
     });
 
     test('displaySegments in main time shows only time', () {
