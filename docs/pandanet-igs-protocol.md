@@ -135,6 +135,11 @@ When a matching opponent is found, the server sends a sequence:
 15 TIME:<game_id>:<player>(<color>): <move_num> <main_used>/<main_total> <byo_used>/<byo_total> <periods_used>/<periods_total> <unk1> <unk2> <unk3>
 ```
 
+**"Handicap and komi are disable"** means players cannot override them -- the server
+auto-determines handicap and komi based on rank difference. For even-ranked players:
+0 handicap, 6.5 komi. For different ranks the server may set handicap stones and
+adjust komi (e.g. 0 handicap, 0.5 komi for a close rank gap).
+
 **Parsing GAMERPROPS:**
 ```
 15 GAMERPROPS:<game_id>: <board_size> <handicap> <komi>
