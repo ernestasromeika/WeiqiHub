@@ -108,7 +108,7 @@ class PandanetTcpManager {
 
       // Pass 63 prefixed messages directly to the stream (for OPPONENT_FOUND, ENTRY, etc.)
       if (line.startsWith('63 ')) {
-        _logger.fine('<<< $line');
+        _logger.info('<<< $line');
         _incoming.add(line);
         continue;
       }
@@ -177,7 +177,7 @@ class PandanetTcpManager {
 
   void _handleFullMessage(String msg) {
     if (_isNoise(msg)) return;
-    _logger.fine('<<< $msg');
+    _logger.info('<<< $msg');
     _incoming.add(msg);
 
     if (msg.contains('9 Player:')) {
@@ -244,7 +244,7 @@ class PandanetTcpManager {
 
     _statsCompleter = Completer<PandaUserStats>();
     s.writeln('stats');
-    _logger.fine('>>> stats');
+    _logger.info('>>> stats');
     return _statsCompleter!.future.timeout(
       const Duration(seconds: 5),
       onTimeout: () => throw Exception('Stats response timeout'),
@@ -257,7 +257,7 @@ class PandanetTcpManager {
 
     final cmd = range != null ? 'who $range' : 'who';
     _socket!.writeln(cmd);
-    _logger.fine('>>> $cmd');
+    _logger.info('>>> $cmd');
 
     return _whoCompleter!.future.timeout(
       const Duration(seconds: 5),
@@ -271,7 +271,7 @@ class PandanetTcpManager {
     _seekConfigBuffer.clear();
 
     _socket!.writeln('seek config_list');
-    _logger.fine('>>> seek config_list');
+    _logger.info('>>> seek config_list');
 
     return _seekConfigCompleter!.future.timeout(
       const Duration(seconds: 5),
@@ -299,7 +299,7 @@ class PandanetTcpManager {
       _logger.warning('Cannot send "$command", not connected.');
       return;
     }
-    _logger.fine('>>> $command');
+    _logger.info('>>> $command');
     s.writeln(command);
   }
 

@@ -18,7 +18,8 @@ Future<void> main() async {
   if (kDebugMode) {
     Logger.root.level = Level.ALL; // defaults to Level.INFO
     Logger.root.onRecord.listen((record) {
-      log('${record.level.name}: ${record.time}: [${record.loggerName}] ${record.message}');
+      // Use debugPrint so logs appear in the flutter run console
+      debugPrint('${record.level.name}: ${record.time}: [${record.loggerName}] ${record.message}');
     });
   } else if (kReleaseMode) {
     Logger.root.level = Level.INFO; // defaults to Level.INFO

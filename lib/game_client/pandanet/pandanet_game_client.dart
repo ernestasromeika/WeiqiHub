@@ -222,6 +222,7 @@ class PandaNetGameClient extends GameClient {
     CanadianByoyomiTimeControl? timeControl;
 
     subscription = _tcpManager.messages.listen((message) {
+      _logger.info('findGame received: ${message.substring(0, message.length > 200 ? 200 : message.length)}');
       final text = message.trim();
 
       // 63 OPPONENT_FOUND <opponent>
