@@ -176,6 +176,8 @@ class PandanetTcpManager {
   }
 
   void _handleFullMessage(String msg) {
+    // Log ALL messages before noise filtering for debugging
+    _logger.fine('<<< RAW: ${msg.substring(0, msg.length > 120 ? 120 : msg.length)}');
     if (_isNoise(msg)) return;
     _logger.info('<<< $msg');
     _incoming.add(msg);
