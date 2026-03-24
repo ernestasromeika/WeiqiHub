@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:logging/logging.dart';
 import 'package:wqhub/game_client/game.dart';
 import 'package:wqhub/game_client/game_result.dart';
 import 'package:wqhub/game_client/game_timer.dart';
@@ -11,6 +12,7 @@ import 'pandanet_tcp_manager.dart';
 import 'package:wqhub/game_client/rules.dart';
 
 class PandanetGame extends Game {
+  static final _logger = Logger('PandanetGame');
   final PandanetTcpManager tcp;
 
   late final Completer<GameResult> _resultCompleter;
@@ -115,6 +117,9 @@ class PandanetGame extends Game {
     } else {
       _blackTimer.start(initialTimeState);
     }
+
+    // Send greeting (required by Pandanet etiquette / server rules)
+    tcp.send('say Hi!');
   }
 
   List<String> get _goLetters =>
@@ -136,6 +141,7 @@ class PandanetGame extends Game {
 
   void _processLine(String text) {
     if (text.isEmpty) return;
+    _logger.info('processLine: $text');
 
     final handiMatch = RegExp(r'\(B\):\s*Handicap\s+(\d+)').firstMatch(text);
     if (handiMatch != null) {
