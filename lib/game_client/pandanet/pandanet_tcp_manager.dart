@@ -199,6 +199,45 @@ class PandanetTcpManager {
         _whoCompleter!.complete(list);
       }
     }
+
+    // Handle stored games response
+    if (_storedGamesCompleter != null && !_storedGamesCompleter!.isCompleted) {
+      final games = <String>[];
+      for (final line in msg.split('\n')) {
+        final t = line.trim();
+        // Stored game names look like "9 player1-player2" or just "player1-player2"
+        // They contain a hyphen and don't start with "18 Found"
+        if (t.contains('Found') && t.contains('stored games')) {
+          // "18 Found 0 stored games." or "18 Found N stored games."
+          continue;
+        }
+        // Match lines like "9 sugadintas-opponent" or just the game name
+        final nameMatch = RegExp(r'(?:^9\s+)?(\w+-\w+)$').firstMatch(t);
+        if (nameMatch != null) {
+          games.add(nameMatch.group(1)!);
+        }
+      }
+      _storedGamesCompleter!.complete(games);
+    }
+
+    // Handle moves collection
+    if (_collectingMoves) {
+      for (final line in msg.split('\n')) {
+        final t = line.trim();
+        // Collect move lines: "15  N(B): XY" or "15  N(W): XY"
+        if (RegExp(r'^\s*15\s+\d+\s*\([BW]\):').hasMatch(t)) {
+          _movesBuffer.add(t);
+        }
+      }
+      // Moves response ends with "1 6"
+      if (msg.contains('1 6') || msg.contains('1 5')) {
+        _collectingMoves = false;
+        if (_movesCompleter != null && !_movesCompleter!.isCompleted) {
+          _movesCompleter!.complete(List<String>.from(_movesBuffer));
+          _movesBuffer.clear();
+        }
+      }
+    }
   }
 
   PandaUserStats? _parseStats(String msg) {
@@ -293,6 +332,50 @@ class PandanetTcpManager {
 
   void sendSeekCancel() {
     send('seek entry_cancel');
+  }
+
+  // --- Game restoration methods ---
+
+  Completer<List<String>>? _storedGamesCompleter;
+  Completer<List<String>>? _movesCompleter;
+  final List<String> _movesBuffer = [];
+  bool _collectingMoves = false;
+
+  Future<List<String>> getStoredGames() async {
+    if (!_connected || _socket == null) throw Exception('Not connected');
+    _storedGamesCompleter = Completer<List<String>>();
+
+    _socket!.writeln('stored');
+    _logger.info('>>> stored');
+
+    return _storedGamesCompleter!.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => [],
+    );
+  }
+
+  void loadGame(String gameName) {
+    send('load $gameName');
+  }
+
+  Future<List<String>> getGameMoves(int gameId) async {
+    if (!_connected || _socket == null) throw Exception('Not connected');
+    _movesCompleter = Completer<List<String>>();
+    _movesBuffer.clear();
+    _collectingMoves = true;
+
+    _socket!.writeln('moves $gameId');
+    _logger.info('>>> moves $gameId');
+
+    return _movesCompleter!.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        _collectingMoves = false;
+        final result = List<String>.from(_movesBuffer);
+        _movesBuffer.clear();
+        return result;
+      },
+    );
   }
 
   void send(String command) {

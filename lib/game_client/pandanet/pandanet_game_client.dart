@@ -183,7 +183,73 @@ class PandaNetGameClient extends GameClient {
   }
 
   @override
-  Future<Game?> ongoingGame() async => null;
+  Future<Game?> ongoingGame() async {
+    final username = _userInfo.value?.username;
+    if (username == null || username.isEmpty) return null;
+
+    if (!_tcpManager.isConnected) {
+      try {
+        await _tcpManager.connect(username, _password.value);
+      } catch (e) {
+        _logger.warning('Failed to connect for game restoration: $e');
+        return null;
+      }
+    }
+
+    // Check for stored/adjourned games
+    try {
+      final storedGames = await _tcpManager.getStoredGames();
+      if (storedGames.isEmpty) {
+        _logger.info('No stored games found.');
+        return null;
+      }
+
+      final gameName = storedGames.first;
+      _logger.info('Found stored game: $gameName. Attempting to load...');
+
+      // Load the game -- this triggers game start messages
+      _tcpManager.loadGame(gameName);
+
+      // Wait for game start messages (same as findGame)
+      final game = await _parseGameStart(
+        username: username,
+        fallbackTimeControl: _fallbackTimeControl,
+        timeout: const Duration(seconds: 15),
+      );
+
+      if (game == null) {
+        _logger.warning('Failed to parse game start after loading $gameName');
+        return null;
+      }
+
+      // Get all previous moves to reconstruct board state
+      try {
+        final moveLines = await _tcpManager.getGameMoves(int.parse(game.id));
+        final previousMoves = _parseMoveLines(moveLines, game.boardSize);
+        _logger.info('Restored ${previousMoves.length} moves for game ${game.id}');
+
+        // Replay moves onto the game's move stream
+        for (final move in previousMoves) {
+          game.replayMove(move);
+        }
+      } catch (e) {
+        _logger.warning('Failed to get moves for restoration: $e');
+        // Game is still loaded, just without move history on board
+      }
+
+      return game;
+    } catch (e) {
+      _logger.warning('Error during game restoration: $e');
+      return null;
+    }
+  }
+
+  static final CanadianByoyomiTimeControl _fallbackTimeControl =
+      CanadianByoyomiTimeControl(
+    mainTime: Duration(seconds: 60),
+    periodTime: Duration(seconds: 600),
+    stonesPerPeriod: 25,
+  );
 
   @override
   Future<Game> findGame(String presetId) async {
@@ -211,21 +277,47 @@ class PandaNetGameClient extends GameClient {
       await _tcpManager.connect(username, _password.value);
     }
 
-    final completer = Completer<Game>();
+    // Send seek entry
+    _logger.info('Sending seek entry: configId=$configId, boardSize=$boardSize');
+    _tcpManager.sendSeekEntry(configId, boardSize);
+
+    // Wait for game start
+    final game = await _parseGameStart(
+      username: username,
+      fallbackTimeControl: preset.timeControl as CanadianByoyomiTimeControl,
+    );
+
+    if (game == null) {
+      throw Exception('Failed to find game');
+    }
+
+    return game;
+  }
+
+  /// Shared helper: listens for game start messages from the TCP stream
+  /// and constructs a PandanetGame when all required data is received.
+  /// Used by both findGame() (after seek entry) and ongoingGame() (after load).
+  Future<PandanetGame?> _parseGameStart({
+    required String username,
+    required CanadianByoyomiTimeControl fallbackTimeControl,
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    final completer = Completer<PandanetGame?>();
     StreamSubscription<String>? subscription;
 
     String? gameId;
     String? whitePlayer;
     String? blackPlayer;
     int handicap = 0;
+    int boardSize = 19;
     double komi = 6.5;
     CanadianByoyomiTimeControl? timeControl;
 
     subscription = _tcpManager.messages.listen((message) {
-      _logger.info('findGame received: ${message.substring(0, message.length > 200 ? 200 : message.length)}');
+      _logger.info('_parseGameStart received: ${message.substring(0, message.length > 200 ? 200 : message.length)}');
       final text = message.trim();
 
-      // 63 OPPONENT_FOUND <opponent>
+      // 63 OPPONENT_FOUND <opponent> (seek only, not load)
       if (text.startsWith('63 OPPONENT_FOUND')) {
         final opponent = text.split(' ').length > 2 ? text.split(' ')[2] : '';
         _logger.info('Opponent found: $opponent');
@@ -243,8 +335,7 @@ class PandaNetGameClient extends GameClient {
         _logger.info('Game line: id=$gameId, white=$whitePlayer, black=$blackPlayer');
       }
 
-      // 15 TIME:<id>:<player>(<color>): <move> <main_used>/<main_total> <byo_used>/<byo_total> <stones_used>/<stones_total> ...
-      // Parse to extract actual time control params from first TIME line
+      // 15 TIME:<id>:<player>(<color>): ...
       final timeMatch = RegExp(
         r'15 TIME:\d+:\w+\([BW]\):\s*\d+\s+(\d+)/(\d+)\s+(\d+)/(\d+)\s+(\d+)/(\d+)',
       ).firstMatch(text);
@@ -273,20 +364,16 @@ class PandaNetGameClient extends GameClient {
         _logger.info('GAMERPROPS: board=$boardSize, handicap=$handicap, komi=$komi');
       }
 
-      // 9 Creating match [<id>] with <opponent>.
-      if (text.contains('Creating match') && gameId != null) {
-        final tc = timeControl ?? preset.timeControl as CanadianByoyomiTimeControl;
+      // Game is ready when we see "Creating match" or "accepted" or "1 6" with a valid gameId
+      final gameReady = text.contains('Creating match') ||
+          text.contains('accepted') ||
+          (text.contains('1 6') && gameId != null && whitePlayer != null);
+
+      if (gameReady && gameId != null) {
+        final tc = timeControl ?? fallbackTimeControl;
 
         final myColor =
             username == whitePlayer ? wq.Color.white : wq.Color.black;
-
-        final previousMoves = <wq.Move>[];
-        if (handicap >= 2) {
-          final pts = PandanetGame.handicapPoints19(handicap.clamp(2, 9));
-          for (final p in pts) {
-            previousMoves.add((col: wq.Color.black, p: p));
-          }
-        }
 
         final game = PandanetGame(
           tcp: _tcpManager,
@@ -296,7 +383,7 @@ class PandaNetGameClient extends GameClient {
           myColor: handicap > 0 ? wq.Color.white : myColor,
           handicap: handicap,
           komi: komi,
-          previousMoves: previousMoves,
+          previousMoves: const [], // Moves are replayed separately for restoration
         );
 
         game.white.value = UserInfo.empty().copyWith(
@@ -320,16 +407,53 @@ class PandaNetGameClient extends GameClient {
           completer.complete(game);
         }
       }
+
+      // Handle load failure
+      if (text.startsWith('5 ') && !completer.isCompleted) {
+        _logger.warning('Game load error: $text');
+        subscription?.cancel();
+        completer.complete(null);
+      }
     }, onError: (e) {
       subscription?.cancel();
-      if (!completer.isCompleted) completer.completeError(e);
+      if (!completer.isCompleted) completer.complete(null);
     });
 
-    // Send seek entry
-    _logger.info('Sending seek entry: configId=$configId, boardSize=$boardSize');
-    _tcpManager.sendSeekEntry(configId, boardSize);
+    return completer.future.timeout(timeout, onTimeout: () {
+      subscription?.cancel();
+      return null;
+    });
+  }
 
-    return completer.future;
+  /// Parse move lines from the `moves` command into a list of wq.Move.
+  List<wq.Move> _parseMoveLines(List<String> lines, int boardSize) {
+    final goLetters = List.generate(19, (i) => String.fromCharCode(i + 65))
+        .where((c) => c != 'I')
+        .toList(growable: false);
+
+    final moves = <wq.Move>[];
+    for (final line in lines) {
+      // Match: "15  N(B): Q16" or "15  N(W): C1 C2" (with captures)
+      final match = RegExp(r'\d+\s*\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})').firstMatch(line);
+      if (match != null) {
+        final colorStr = match.group(1)!;
+        final coord = match.group(2)!;
+
+        // Skip handicap lines
+        if (coord.toLowerCase() == 'handicap') continue;
+
+        final col = colorStr == 'B' ? wq.Color.black : wq.Color.white;
+        final letter = coord[0].toUpperCase();
+        final number = int.tryParse(coord.substring(1)) ?? 1;
+        final x = boardSize - number;
+        final y = goLetters.indexOf(letter);
+
+        if (y >= 0) {
+          moves.add((col: col, p: (x, y)));
+        }
+      }
+    }
+    return moves;
   }
 
   @override

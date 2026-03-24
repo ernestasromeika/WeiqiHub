@@ -422,6 +422,13 @@ class PandanetGame extends Game {
     return '$letter$number';
   }
 
+  /// Replay a move from game history (for restoration).
+  /// Does NOT send to the server -- just updates the board.
+  void replayMove(wq.Move move) {
+    _lastProcessedMoveNum++;
+    _moveController.add(move);
+  }
+
   @override
   Stream<wq.Move?> moves() => _moveController.stream;
 
