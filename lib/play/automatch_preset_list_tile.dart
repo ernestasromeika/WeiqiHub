@@ -17,9 +17,7 @@ class AutomatchPresetListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context)!;
-    final title = Text(preset.timeControl.mainTime.inMinutes == 0
-        ? '${loc.sSeconds(preset.timeControl.mainTime.inSeconds)} ${loc.pxsByoyomi(preset.timeControl.periodCount, preset.timeControl.timePerPeriod.inSeconds)}'
-        : '${loc.mMinutes(preset.timeControl.mainTime.inMinutes)} ${loc.pxsByoyomi(preset.timeControl.periodCount, preset.timeControl.timePerPeriod.inSeconds)}');
+    final title = Text(preset.timeControl.description());
 
     return ListTile(
       leading: Text(loc.nxnBoardSize(preset.boardSize)),

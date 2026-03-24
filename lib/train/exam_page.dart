@@ -1,7 +1,9 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:wqhub/game_client/time_state.dart';
+import 'package:wqhub/game_client/game_timer.dart';
+import 'package:wqhub/game_client/time_control/japanese_byoyomi.dart';
+import 'package:wqhub/game_client/time_control/time_state.dart';
 import 'package:wqhub/l10n/app_localizations.dart';
 import 'package:wqhub/settings/shared_preferences_inherited_widget.dart';
 import 'package:wqhub/confirm_dialog.dart';
@@ -59,24 +61,60 @@ class ExamPage extends StatefulWidget {
 }
 
 class _ExamPageState extends State<ExamPage> with TaskSolvingStateMixin {
-  final _timeDisplayKey = GlobalKey(debugLabel: 'time-display');
   final _stopwatch = Stopwatch();
   late final _taskSource = widget.createTaskSource(context);
   var _taskNumber = 1;
   var _totalTime = Duration.zero;
   var _mistakeCount = 0;
   final _completedTasks = <(TaskRef, bool)>[];
+  late GameTimer _gameTimer;
+
+  JapaneseByoyomiTimeControl _makeTimeControl() =>
+      JapaneseByoyomiTimeControl(
+        mainTime: widget.timePerTask,
+        periodCount: 0,
+        timePerPeriod: Duration.zero,
+      );
 
   @override
   void initState() {
     super.initState();
     _stopwatch.start();
+    final tc = _makeTimeControl();
+    _gameTimer = GameTimer(
+      timeControl: tc,
+      initialState: tc.initialState(),
+    );
+    _gameTimer.start(tc.initialState());
+    _gameTimer.addListener(_onTimerTick);
   }
 
   @override
   void dispose() {
+    _gameTimer.removeListener(_onTimerTick);
+    _gameTimer.dispose();
     _stopwatch.stop();
     super.dispose();
+  }
+
+  void _onTimerTick() {
+    final (_, timeState) = _gameTimer.value;
+    if (timeState.isFlagged && solveStatus == null) {
+      final wideLayout = MediaQuery.sizeOf(context).aspectRatio > 1.5;
+      _onSolveTimeout(wideLayout);
+    }
+  }
+
+  void _resetTimer() {
+    _gameTimer.removeListener(_onTimerTick);
+    _gameTimer.dispose();
+    final tc = _makeTimeControl();
+    _gameTimer = GameTimer(
+      timeControl: tc,
+      initialState: tc.initialState(),
+    );
+    _gameTimer.start(tc.initialState());
+    _gameTimer.addListener(_onTimerTick);
   }
 
   @override
@@ -97,18 +135,17 @@ class _ExamPageState extends State<ExamPage> with TaskSolvingStateMixin {
     final taskTitle =
         '[${_taskSource.task.ref.rank.toString()}] ${_taskSource.task.ref.type.toLocalizedString(loc)}';
 
-    final timeDisplay = TimeDisplay(
-      key: _timeDisplayKey,
-      timeState: TimeState(
-        mainTimeLeft: widget.timePerTask,
-        periodTimeLeft: Duration.zero,
-        periodCount: 0,
-      ),
-      warningDuration: const Duration(seconds: 9),
-      enabled: solveStatus == null,
-      tickerEnabled: true,
-      voiceCountdown: false,
-      onTimeout: () => _onSolveTimeout(wideLayout),
+    final timeDisplay = ValueListenableBuilder<(int, TimeState)>(
+      valueListenable: _gameTimer,
+      builder: (context, value, child) {
+        final (tickId, timeState) = value;
+        return TimeDisplay(
+          tickId: tickId,
+          timeState: timeState,
+          warningDuration: const Duration(seconds: 9),
+          voiceCountdown: false,
+        );
+      },
     );
 
     if (wideLayout) {
@@ -235,6 +272,7 @@ class _ExamPageState extends State<ExamPage> with TaskSolvingStateMixin {
   @override
   void onSolveStatus(VariationStatus status) {
     _stopwatch.stop();
+    _gameTimer.stop();
     _totalTime += _stopwatch.elapsed;
     if (status != VariationStatus.correct) _mistakeCount++;
 
@@ -306,10 +344,12 @@ class _ExamPageState extends State<ExamPage> with TaskSolvingStateMixin {
     });
     _stopwatch.reset();
     _stopwatch.start();
+    _resetTimer();
   }
 
   void _onSolveTimeout(bool wideLayout) {
     if (solveStatus == null) {
+      _gameTimer.stop();
       _mistakeCount++;
       _totalTime += widget.timePerTask;
       solveStatus = VariationStatus.wrong;

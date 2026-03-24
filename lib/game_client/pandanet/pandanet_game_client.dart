@@ -11,7 +11,7 @@ import 'package:wqhub/game_client/game_record.dart';
 import 'package:wqhub/game_client/rules.dart';
 import 'package:wqhub/game_client/server_features.dart';
 import 'package:wqhub/game_client/server_info.dart';
-import 'package:wqhub/game_client/time_control.dart';
+import 'package:wqhub/game_client/time_control/japanese_byoyomi.dart';
 import 'package:wqhub/game_client/user_info.dart';
 import 'pandanet_sgf_parser.dart';
 import 'pandanet_html_parser.dart';
@@ -55,7 +55,6 @@ class PandaNetGameClient extends GameClient {
         aiRefereeMinMoveCount: const IMapConst({}),
         forcedCounting: false,
         forcedCountingMinMoveCount: const IMapConst({}),
-        localTimeControl: true,
       );
 
   @override
@@ -65,27 +64,31 @@ class PandaNetGameClient extends GameClient {
   ValueNotifier<DateTime> get disconnected => _disconnected;
 
   @override
+  ValueNotifier<IMap<String, AutomatchPresetStats>> get automatchStats =>
+      ValueNotifier(const IMapConst({}));
+
+  @override
   IList<AutomatchPreset> get automatchPresets => _createAutomatchPresets();
 
   static IList<AutomatchPreset> _createAutomatchPresets() {
     const speeds = ['blitz', 'rapid', 'fast', 'slow'];
     final timeControls = {
-      'blitz': TimeControl(
+      'blitz': JapaneseByoyomiTimeControl(
         mainTime: Duration(minutes: 100),
         periodCount: 1,
         timePerPeriod: Duration(minutes: 5),
       ),
-      'rapid': TimeControl(
+      'rapid': JapaneseByoyomiTimeControl(
         mainTime: Duration(minutes: 100),
         periodCount: 1,
         timePerPeriod: Duration(minutes: 7),
       ),
-      'fast': TimeControl(
+      'fast': JapaneseByoyomiTimeControl(
         mainTime: Duration(minutes: 100),
         periodCount: 1,
         timePerPeriod: Duration(minutes: 10),
       ),
-      'slow': TimeControl(
+      'slow': JapaneseByoyomiTimeControl(
         mainTime: Duration(minutes: 100),
         periodCount: 1,
         timePerPeriod: Duration(minutes: 15),

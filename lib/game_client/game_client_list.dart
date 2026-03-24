@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
 import 'package:wqhub/game_client/ogs/ogs_game_client.dart';
+import 'package:wqhub/game_client/pandanet/pandanet_game_client.dart';
 import 'package:wqhub/game_client/test_game_client.dart';
 
 final gameClients = IList([
@@ -12,5 +13,6 @@ final gameClients = IList([
         ? "https://beta-ai.online-go.com"
         : "https://ai.online-go.com",
   ),
+  PandaNetGameClient(),
   if (kDebugMode) TestGameClient(),
 ]);

@@ -11,7 +11,7 @@ import 'package:wqhub/game_client/game.dart';
 import 'package:wqhub/game_client/game_result.dart';
 import 'package:wqhub/game_client/rules.dart';
 import 'package:wqhub/game_client/server_features.dart';
-import 'package:wqhub/game_client/time_state.dart';
+import 'package:wqhub/game_client/time_control/time_state.dart';
 import 'package:wqhub/game_client/user_info.dart';
 import 'package:wqhub/l10n/app_localizations.dart';
 import 'package:wqhub/play/counting_result_bottom_sheet.dart';
@@ -223,8 +223,6 @@ class _GamePageState extends State<GamePage> {
           tickId: tickId,
           timeState: timeState,
           warningDuration: Duration(seconds: 10),
-          enabled: _state == GameState.playing && _turn == wq.Color.black,
-          tickerEnabled: widget.serverFeatures.localTimeControl,
           voiceCountdown: true,
         );
       },
@@ -253,8 +251,6 @@ class _GamePageState extends State<GamePage> {
           tickId: tickId,
           timeState: timeState,
           warningDuration: Duration(seconds: 10),
-          enabled: _state == GameState.playing && _turn == wq.Color.white,
-          tickerEnabled: widget.serverFeatures.localTimeControl,
           voiceCountdown: true,
         );
       },

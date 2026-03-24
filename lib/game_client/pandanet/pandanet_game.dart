@@ -4,7 +4,7 @@ import 'package:wqhub/game_client/game_result.dart';
 import 'package:wqhub/game_client/automatic_counting_info.dart';
 import 'package:wqhub/game_client/counting_result.dart';
 import 'package:wqhub/wq/wq.dart' as wq;
-import 'package:wqhub/game_client/time_control.dart';
+import 'package:wqhub/game_client/time_control/time_control.dart';
 import 'pandanet_tcp_manager.dart';
 import 'package:wqhub/game_client/rules.dart';
 
@@ -173,6 +173,7 @@ class PandanetGame extends Game {
         winner: r.winner!,
         scoreLead: double.tryParse(r.result.replaceAll('R', '0')) ?? 0,
         ownership: List.generate(19, (_) => List<wq.Color?>.filled(19, null)),
+        isFinal: true,
       ),
     );
 
@@ -216,7 +217,10 @@ class PandanetGame extends Game {
   Future<void> resign() async => tcp.send('resign');
 
   @override
-  Future<void> manualCounting() async => tcp.send('score');
+  Future<void> toggleManuallyRemovedStones(
+      List<wq.Point> stones, bool removed) async {
+    // TODO: implement manual stone removal for Pandanet scoring
+  }
 
   @override
   Stream<bool> automaticCountingResponses() =>

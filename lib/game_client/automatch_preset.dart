@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:wqhub/game_client/game_client.dart';
 import 'package:wqhub/game_client/rules.dart';
-import 'package:wqhub/game_client/time_control.dart';
+import 'package:wqhub/game_client/time_control/time_control.dart';
 
 @immutable
 class AutomatchPreset {

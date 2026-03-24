@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:wqhub/game_client/time_state.dart';
+import 'package:wqhub/game_client/time_control/japanese_byoyomi.dart';
 import 'package:wqhub/l10n/app_localizations.dart';
 import 'package:wqhub/settings/shared_preferences_inherited_widget.dart';
 import 'package:wqhub/stats/stats_db.dart';
@@ -48,21 +49,43 @@ class CollectionPage extends StatefulWidget {
 
 class _CollectionPageState extends State<CollectionPage>
     with TaskSolvingStateMixin {
-  final _timeDisplayKey = GlobalKey(debugLabel: 'time-display');
   final _stopwatch = Stopwatch();
   var _taskNumber = 1;
+  var _elapsed = Duration.zero;
+  Timer? _elapsedTimer;
+  int _tickId = 0;
 
   @override
   void initState() {
     super.initState();
     _taskNumber = widget.initialTask;
     _stopwatch.start();
+    _startElapsedTimer();
   }
 
   @override
   void dispose() {
+    _elapsedTimer?.cancel();
     _stopwatch.stop();
     super.dispose();
+  }
+
+  void _startElapsedTimer() {
+    _elapsedTimer?.cancel();
+    _elapsed = Duration.zero;
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (solveStatus == null) {
+        setState(() {
+          _elapsed += const Duration(seconds: 1);
+          _tickId++;
+        });
+      }
+    });
+  }
+
+  void _stopElapsedTimer() {
+    _elapsedTimer?.cancel();
+    _elapsedTimer = null;
   }
 
   @override
@@ -85,17 +108,16 @@ class _CollectionPageState extends State<CollectionPage>
     final taskTitle =
         '[$taskRank] ${widget.taskSource.task.ref.type.toLocalizedString(loc)}';
 
+    final timeState = JapaneseByoyomiTimeState(
+      mainTimeLeft: _elapsed,
+      periodTimeLeft: Duration.zero,
+      periodsRemaining: 0,
+    );
+
     final timeDisplay = TimeDisplay(
-      key: _timeDisplayKey,
-      timeState: const TimeState(
-        mainTimeLeft: Duration.zero,
-        periodTimeLeft: Duration.zero,
-        periodCount: 0,
-      ),
+      tickId: _tickId,
+      timeState: timeState,
       warningDuration: const Duration(seconds: -1),
-      enabled: solveStatus == null,
-      tickerEnabled: true,
-      tickMode: TickMode.increase,
       voiceCountdown: false,
     );
 
@@ -181,6 +203,7 @@ class _CollectionPageState extends State<CollectionPage>
   @override
   void onSolveStatus(VariationStatus status) {
     _stopwatch.stop();
+    _stopElapsedTimer();
     StatsDB()
         .addTaskAttempt(currentTask.ref, status == VariationStatus.correct);
     if (status == VariationStatus.correct) {
@@ -222,6 +245,7 @@ class _CollectionPageState extends State<CollectionPage>
       });
       _stopwatch.reset();
       _stopwatch.start();
+      _startElapsedTimer();
     } else {
       _finishSession();
     }

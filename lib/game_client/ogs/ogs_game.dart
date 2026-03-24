@@ -11,7 +11,8 @@ import 'package:wqhub/game_client/ogs/http_client.dart';
 import 'package:wqhub/game_client/ogs/game_utils.dart';
 import 'package:wqhub/game_client/ogs/ogs_websocket_manager.dart';
 import 'package:wqhub/game_client/rules.dart';
-import 'package:wqhub/game_client/time_state.dart';
+import 'package:wqhub/game_client/time_control/japanese_byoyomi.dart';
+import 'package:wqhub/game_client/time_control/time_state.dart';
 import 'package:wqhub/game_client/user_info.dart';
 import 'package:wqhub/wq/grid.dart';
 import 'package:wqhub/wq/rank.dart';
@@ -74,13 +75,9 @@ class OGSGame extends Game {
 
     _allMoves.addAll(previousMoves);
 
-    final initialTimeState = TimeState(
-      mainTimeLeft: timeControl.mainTime,
-      periodTimeLeft: timeControl.timePerPeriod,
-      periodCount: timeControl.periodCount,
-    );
-    _blackTimer = GameTimer(initialState: initialTimeState);
-    _whiteTimer = GameTimer(initialState: initialTimeState);
+    final initialTimeState = timeControl.initialState();
+    _blackTimer = GameTimer(timeControl: timeControl, initialState: initialTimeState);
+    _whiteTimer = GameTimer(timeControl: timeControl, initialState: initialTimeState);
 
     _blackTimer.addListener(() {
       blackTime.value = _blackTimer.value;
@@ -505,10 +502,10 @@ class OGSGame extends Game {
     final periods = timeData['periods'] as int? ?? 0;
     final periodTime = _parseSeconds(timeData['period_time']);
 
-    return TimeState(
+    return JapaneseByoyomiTimeState(
       mainTimeLeft: thinkingTime,
       periodTimeLeft: periodTime,
-      periodCount: periods,
+      periodsRemaining: periods,
     );
   }
 

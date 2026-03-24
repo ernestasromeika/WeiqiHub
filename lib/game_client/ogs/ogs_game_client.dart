@@ -19,7 +19,7 @@ import 'package:wqhub/game_client/ogs/ogs_websocket_manager.dart';
 import 'package:wqhub/game_client/rules.dart';
 import 'package:wqhub/game_client/server_features.dart';
 import 'package:wqhub/game_client/server_info.dart';
-import 'package:wqhub/game_client/time_control.dart';
+import 'package:wqhub/game_client/time_control/japanese_byoyomi.dart';
 import 'package:wqhub/game_client/user_info.dart';
 import 'package:wqhub/wq/rank.dart';
 import 'package:wqhub/wq/util.dart';
@@ -85,7 +85,6 @@ class OGSGameClient extends GameClient {
         aiRefereeMinMoveCount: const IMapConst({}),
         forcedCounting: false, // OGS handles counting differently
         forcedCountingMinMoveCount: const IMapConst({}),
-        localTimeControl: false, // OGS uses GameTimer for local countdown
       );
 
   @override
@@ -109,51 +108,51 @@ class OGSGameClient extends GameClient {
     // https://github.com/online-go/online-go.com/blob/4ed60176f8fe21960376b663515f4721dad22ab1/src/views/Play/SPEED_OPTIONS.ts#L40
     final timeControlsBySpeedAndSize = {
       '9x9': {
-        'blitz': TimeControl(
+        'blitz': JapaneseByoyomiTimeControl(
           mainTime: Duration(seconds: 30),
           periodCount: 5,
           timePerPeriod: Duration(seconds: 10),
         ),
-        'rapid': TimeControl(
+        'rapid': JapaneseByoyomiTimeControl(
           mainTime: Duration(minutes: 2),
           periodCount: 5,
           timePerPeriod: Duration(seconds: 30),
         ),
-        'live': TimeControl(
+        'live': JapaneseByoyomiTimeControl(
           mainTime: Duration(minutes: 5),
           periodCount: 5,
           timePerPeriod: Duration(seconds: 30),
         ),
       },
       '13x13': {
-        'blitz': TimeControl(
+        'blitz': JapaneseByoyomiTimeControl(
           mainTime: Duration(seconds: 30),
           periodCount: 5,
           timePerPeriod: Duration(seconds: 10),
         ),
-        'rapid': TimeControl(
+        'rapid': JapaneseByoyomiTimeControl(
           mainTime: Duration(minutes: 3),
           periodCount: 5,
           timePerPeriod: Duration(seconds: 30),
         ),
-        'live': TimeControl(
+        'live': JapaneseByoyomiTimeControl(
           mainTime: Duration(minutes: 10),
           periodCount: 5,
           timePerPeriod: Duration(seconds: 30),
         ),
       },
       '19x19': {
-        'blitz': TimeControl(
+        'blitz': JapaneseByoyomiTimeControl(
           mainTime: Duration(seconds: 30),
           periodCount: 5,
           timePerPeriod: Duration(seconds: 10),
         ),
-        'rapid': TimeControl(
+        'rapid': JapaneseByoyomiTimeControl(
           mainTime: Duration(minutes: 5),
           periodCount: 5,
           timePerPeriod: Duration(seconds: 30),
         ),
-        'live': TimeControl(
+        'live': JapaneseByoyomiTimeControl(
           mainTime: Duration(minutes: 20),
           periodCount: 5,
           timePerPeriod: Duration(seconds: 30),
@@ -379,7 +378,7 @@ class OGSGameClient extends GameClient {
 
     // Parse time control
     final timeControlData = gameData['time_control'] as Map<String, dynamic>?;
-    final timeControl = TimeControl(
+    final timeControl = JapaneseByoyomiTimeControl(
       mainTime: Duration(seconds: timeControlData?['main_time'] as int? ?? 300),
       timePerPeriod:
           Duration(seconds: timeControlData?['period_time'] as int? ?? 30),

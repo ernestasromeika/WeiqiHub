@@ -1,6 +1,7 @@
 import 'package:wqhub/wq/rank.dart';
 import 'package:wqhub/game_client/user_info.dart';
 import 'package:wqhub/game_client/game_result.dart';
+import 'package:wqhub/game_client/rules.dart';
 import 'package:wqhub/wq/wq.dart' as wq;
 import 'package:wqhub/game_client/game_client.dart';
 
@@ -119,7 +120,9 @@ GameSummary? _parseGameRow(String rowHtml, Rank Function(String) rankParser) {
 
   return GameSummary(
     id: gameId,
+    rules: Rules.japanese,
     boardSize: boardSize,
+    komi: double.tryParse(komiStr) ?? 6.5,
     white: white,
     black: black,
     dateTime: dateTime,

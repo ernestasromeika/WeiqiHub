@@ -1,7 +1,9 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:wqhub/game_client/time_state.dart';
+import 'package:wqhub/game_client/game_timer.dart';
+import 'package:wqhub/game_client/time_control/japanese_byoyomi.dart';
+import 'package:wqhub/game_client/time_control/time_state.dart';
 import 'package:wqhub/l10n/app_localizations.dart';
 import 'package:wqhub/settings/shared_preferences_inherited_widget.dart';
 import 'package:wqhub/stats/stats_db.dart';
@@ -35,25 +37,46 @@ class TimeFrenzyPage extends StatefulWidget {
 
 const _sessionLength = Duration(minutes: 3);
 
+final _timeControl = JapaneseByoyomiTimeControl(
+  mainTime: _sessionLength,
+  periodCount: 0,
+  timePerPeriod: Duration.zero,
+);
+
 class _TimeFrenzyPageState extends State<TimeFrenzyPage>
     with TaskSolvingStateMixin {
-  final _timeDisplayKey = GlobalKey(debugLabel: 'time-display');
   final _stopwatch = Stopwatch();
   var _taskNumber = 1;
   var _mistakeCount = 0;
   var _solveCount = 0;
   Rank _maxRank = Rank.k15;
+  late final GameTimer _gameTimer;
 
   @override
   void initState() {
     super.initState();
     _stopwatch.start();
+    _gameTimer = GameTimer(
+      timeControl: _timeControl,
+      initialState: _timeControl.initialState(),
+    );
+    _gameTimer.start(_timeControl.initialState());
+    _gameTimer.addListener(_onTimerTick);
   }
 
   @override
   void dispose() {
+    _gameTimer.removeListener(_onTimerTick);
+    _gameTimer.dispose();
     _stopwatch.stop();
     super.dispose();
+  }
+
+  void _onTimerTick() {
+    final (_, timeState) = _gameTimer.value;
+    if (timeState.isFlagged && _mistakeCount < 3) {
+      _endRun();
+    }
   }
 
   @override
@@ -74,18 +97,17 @@ class _TimeFrenzyPageState extends State<TimeFrenzyPage>
     final taskTitle =
         '[${widget.taskSource.task.ref.rank.toString()}] ${widget.taskSource.task.ref.type.toLocalizedString(loc)}';
 
-    final timeDisplay = TimeDisplay(
-      key: _timeDisplayKey,
-      timeState: const TimeState(
-        mainTimeLeft: _sessionLength,
-        periodTimeLeft: Duration.zero,
-        periodCount: 0,
-      ),
-      warningDuration: Duration(seconds: 9),
-      enabled: _mistakeCount < 3,
-      tickerEnabled: true,
-      voiceCountdown: false,
-      onTimeout: _endRun,
+    final timeDisplay = ValueListenableBuilder<(int, TimeState)>(
+      valueListenable: _gameTimer,
+      builder: (context, value, child) {
+        final (tickId, timeState) = value;
+        return TimeDisplay(
+          tickId: tickId,
+          timeState: timeState,
+          warningDuration: Duration(seconds: 9),
+          voiceCountdown: false,
+        );
+      },
     );
 
     if (wideLayout) {
@@ -180,6 +202,7 @@ class _TimeFrenzyPageState extends State<TimeFrenzyPage>
   }
 
   void _endRun() {
+    _gameTimer.stop();
     showDialog(
       context: context,
       barrierDismissible: false,

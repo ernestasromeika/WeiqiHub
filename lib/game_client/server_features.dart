@@ -9,8 +9,6 @@ class ServerFeatures {
   final IMap<int, int> aiRefereeMinMoveCount;
   final bool forcedCounting;
   final IMap<int, int> forcedCountingMinMoveCount;
-  final bool localTimeControl;
-
   const ServerFeatures({
     required this.manualCounting,
     required this.automaticCounting,
@@ -18,7 +16,6 @@ class ServerFeatures {
     required this.aiRefereeMinMoveCount,
     required this.forcedCounting,
     required this.forcedCountingMinMoveCount,
-    required this.localTimeControl,
   });
 
   @override
@@ -28,8 +25,7 @@ class ServerFeatures {
       aiReferee,
       aiRefereeMinMoveCount,
       forcedCounting,
-      forcedCountingMinMoveCount,
-      localTimeControl);
+      forcedCountingMinMoveCount);
 
   @override
   bool operator ==(Object other) {
@@ -45,7 +41,6 @@ class ServerFeatures {
         other.aiReferee == aiReferee &&
         other.aiRefereeMinMoveCount == aiRefereeMinMoveCount &&
         other.forcedCounting == forcedCounting &&
-        other.forcedCountingMinMoveCount == forcedCountingMinMoveCount &&
-        other.localTimeControl == localTimeControl;
+        other.forcedCountingMinMoveCount == forcedCountingMinMoveCount;
   }
 }

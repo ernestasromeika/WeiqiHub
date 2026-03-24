@@ -3,8 +3,8 @@ import 'package:wqhub/game_client/automatic_counting_info.dart';
 import 'package:wqhub/game_client/counting_result.dart';
 import 'package:wqhub/game_client/game_result.dart';
 import 'package:wqhub/game_client/rules.dart';
-import 'package:wqhub/game_client/time_control.dart';
-import 'package:wqhub/game_client/time_state.dart';
+import 'package:wqhub/game_client/time_control/time_control.dart';
+import 'package:wqhub/game_client/time_control/time_state.dart';
 import 'package:wqhub/game_client/user_info.dart';
 import 'package:wqhub/wq/wq.dart' as wq;
 
@@ -32,11 +32,7 @@ abstract class Game {
     required this.timeControl,
     required this.previousMoves,
   }) {
-    final t = TimeState(
-      mainTimeLeft: timeControl.mainTime,
-      periodTimeLeft: timeControl.timePerPeriod,
-      periodCount: timeControl.periodCount,
-    );
+    final t = timeControl.initialState();
     blackTime.value = (2, t);
     whiteTime.value = (2, t);
   }

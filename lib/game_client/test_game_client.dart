@@ -9,7 +9,7 @@ import 'package:wqhub/game_client/rules.dart';
 import 'package:wqhub/game_client/server_features.dart';
 import 'package:wqhub/game_client/server_info.dart';
 import 'package:wqhub/game_client/test_game.dart';
-import 'package:wqhub/game_client/time_control.dart';
+import 'package:wqhub/game_client/time_control/japanese_byoyomi.dart';
 import 'package:wqhub/game_client/user_info.dart';
 import 'package:wqhub/wq/rank.dart';
 import 'package:wqhub/wq/wq.dart' as wq;
@@ -22,7 +22,7 @@ class TestGameClient extends GameClient {
           boardSize: 19,
           variant: Variant.standard,
           rules: Rules.chinese,
-          timeControl: TimeControl(
+          timeControl: JapaneseByoyomiTimeControl(
             mainTime: Duration(minutes: 1),
             periodCount: 3,
             timePerPeriod: Duration(seconds: 30),
@@ -45,7 +45,7 @@ class TestGameClient extends GameClient {
       handicap: 0,
       komi: 7.5,
       myColor: wq.Color.black,
-      timeControl: TimeControl(
+      timeControl: JapaneseByoyomiTimeControl(
         mainTime: Duration(minutes: 1),
         periodCount: 3,
         timePerPeriod: Duration(seconds: 30),
@@ -119,7 +119,6 @@ class TestGameClient extends GameClient {
         forcedCountingMinMoveCount: const IMapConst({
           19: 350,
         }),
-        localTimeControl: true,
       );
 
   @override
