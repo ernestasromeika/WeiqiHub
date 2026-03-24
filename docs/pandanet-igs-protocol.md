@@ -132,7 +132,25 @@ When a matching opponent is found, the server sends a sequence:
 
 **Parsing the TIME line:**
 ```
-15 TIME:<game_id>:<player>(<color>): <move_num> <main_used>/<main_total> <byo_used>/<byo_total> <periods_used>/<periods_total> <unk1> <unk2> <unk3>
+15 TIME:<game_id>:<player>(<color>): <byo_flag> <main_a>/<main_b> <byo_a>/<byo_b> <stones_a>/<stones_b> <unk1> <unk2> <unk3>
+```
+
+The `byo_flag` field changes the interpretation:
+- **byo_flag=0** (main time): `main_a/main_b` = used/total, `byo_a/byo_b` = 0/total, `stones_a/stones_b` = total/total
+  - `mainTimeLeft = main_b - main_a`, `periodTimeLeft = byo_b`, `stonesRemaining = stones_b`
+- **byo_flag=1** (byo-yomi): `main_a/main_b` = irrelevant, `byo_a/byo_b` = remaining/total, `stones_a/stones_b` = remaining/total
+  - `mainTimeLeft = 0`, `periodTimeLeft = byo_a`, `stonesRemaining = stones_a`
+
+**Example during main time:**
+```
+15 TIME:469:sugadintas(W): 0 58/60 0/600 25/25 0/0 0/0 0/0
+→ mainTimeLeft=2s, periodTimeLeft=600s, stonesRemaining=25
+```
+
+**Example in byo-yomi:**
+```
+15 TIME:469:sugadintas(W): 1 0/60 585/600 17/25 0/0 0/0 0/0
+→ mainTimeLeft=0s, periodTimeLeft=585s, stonesRemaining=17
 ```
 
 **"Handicap and komi are disable"** means players cannot override them -- the server

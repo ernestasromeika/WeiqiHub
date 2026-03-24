@@ -157,25 +157,51 @@ class PandanetGame extends Game {
     }
 
     // Parse TIME messages:
-    // 15 TIME:<game_id>:<player>(<color>): <move> <main_used>/<main_total> <byo_used>/<byo_total> <stones_used>/<stones_total> ...
+    // 15 TIME:<id>:<player>(<color>): <byo_flag> <main_a>/<main_b> <byo_a>/<byo_b> <stones_a>/<stones_b> ...
+    //
+    // When byo_flag=0 (in main time):
+    //   main_a/main_b = used/total, byo_a/byo_b = 0/total, stones_a/stones_b = total/total
+    //   mainTimeLeft = main_b - main_a, periodTimeLeft = byo_b, stonesRemaining = stones_b
+    //
+    // When byo_flag=1 (in byo-yomi):
+    //   main_a/main_b = 0/total (irrelevant), byo_a/byo_b = remaining/total, stones_a/stones_b = remaining/total
+    //   mainTimeLeft = 0, periodTimeLeft = byo_a, stonesRemaining = stones_a
     final timeMatch = RegExp(
-      r'15 TIME:\d+:\w+\(([BW])\):\s*\d+\s+(\d+)/(\d+)\s+(\d+)/(\d+)\s+(\d+)/(\d+)',
+      r'15 TIME:\d+:\w+\(([BW])\):\s*(\d+)\s+(\d+)/(\d+)\s+(\d+)/(\d+)\s+(\d+)/(\d+)',
     ).firstMatch(text);
     if (timeMatch != null) {
       final color = timeMatch.group(1)!;
-      final mainUsed = int.parse(timeMatch.group(2)!);
-      final mainTotal = int.parse(timeMatch.group(3)!);
-      final byoUsed = int.parse(timeMatch.group(4)!);
-      final byoTotal = int.parse(timeMatch.group(5)!);
-      final stonesUsed = int.parse(timeMatch.group(6)!);
-      final stonesTotal = int.parse(timeMatch.group(7)!);
+      final byoFlag = int.parse(timeMatch.group(2)!);
+      final mainA = int.parse(timeMatch.group(3)!);
+      final mainB = int.parse(timeMatch.group(4)!);
+      final byoA = int.parse(timeMatch.group(5)!);
+      final byoB = int.parse(timeMatch.group(6)!);
+      final stonesA = int.parse(timeMatch.group(7)!);
+      final stonesB = int.parse(timeMatch.group(8)!);
 
-      final state = CanadianByoyomiTimeState(
-        mainTimeLeft: Duration(seconds: mainTotal - mainUsed),
-        periodTimeLeft: Duration(seconds: byoTotal - byoUsed),
-        stonesRemaining: stonesTotal - stonesUsed,
-        stonesPerPeriod: stonesTotal,
-      );
+      final CanadianByoyomiTimeState state;
+      if (byoFlag == 0) {
+        // In main time: main_a = used, main_b = total
+        state = CanadianByoyomiTimeState(
+          mainTimeLeft: Duration(seconds: mainB - mainA),
+          periodTimeLeft: Duration(seconds: byoB),
+          stonesRemaining: stonesB,
+          stonesPerPeriod: stonesB,
+        );
+      } else {
+        // In byo-yomi: byo_a = remaining, stones_a = remaining
+        state = CanadianByoyomiTimeState(
+          mainTimeLeft: Duration.zero,
+          periodTimeLeft: Duration(seconds: byoA),
+          stonesRemaining: stonesA,
+          stonesPerPeriod: stonesB,
+        );
+      }
+
+      _logger.info('TIME parsed: color=$color, byoFlag=$byoFlag, '
+          'mainLeft=${state.mainTimeLeft.inSeconds}s, '
+          'periodLeft=${state.periodTimeLeft.inSeconds}s, '
+          'stones=${state.stonesRemaining}/${state.stonesPerPeriod}');
 
       if (color == 'B') {
         _pendingBlackTime = state;
