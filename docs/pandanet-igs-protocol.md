@@ -135,19 +135,19 @@ When a matching opponent is found, the server sends a sequence:
 15 TIME:<game_id>:<player>(<color>): <byo_flag> <main_a>/<main_b> <byo_a>/<byo_b> <stones_a>/<stones_b> <unk1> <unk2> <unk3>
 ```
 
-The `byo_flag` field changes the interpretation:
-- **byo_flag=0** (main time): `main_a/main_b` = used/total, `byo_a/byo_b` = 0/total, `stones_a/stones_b` = total/total
-  - `mainTimeLeft = main_b - main_a`, `periodTimeLeft = byo_b`, `stonesRemaining = stones_b`
-- **byo_flag=1** (byo-yomi): `main_a/main_b` = irrelevant, `byo_a/byo_b` = remaining/total, `stones_a/stones_b` = remaining/total
+All fields use **remaining/total** format. The `byo_flag` indicates which phase:
+- **byo_flag=0** (main time): `main_a` = remaining main seconds, `byo_a` = 0 (unused), `stones_a` = stones per period
+  - `mainTimeLeft = main_a`, `periodTimeLeft = byo_b`, `stonesRemaining = stones_b`
+- **byo_flag=1** (byo-yomi): `main_a` = 0 (exhausted), `byo_a` = remaining period seconds, `stones_a` = remaining stones
   - `mainTimeLeft = 0`, `periodTimeLeft = byo_a`, `stonesRemaining = stones_a`
 
-**Example during main time:**
+**Example during main time (58s remaining of 60):**
 ```
 15 TIME:469:sugadintas(W): 0 58/60 0/600 25/25 0/0 0/0 0/0
-→ mainTimeLeft=2s, periodTimeLeft=600s, stonesRemaining=25
+→ mainTimeLeft=58s, periodTimeLeft=600s, stonesRemaining=25
 ```
 
-**Example in byo-yomi:**
+**Example in byo-yomi (585s remaining, 17 stones remaining):**
 ```
 15 TIME:469:sugadintas(W): 1 0/60 585/600 17/25 0/0 0/0 0/0
 → mainTimeLeft=0s, periodTimeLeft=585s, stonesRemaining=17

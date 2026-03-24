@@ -180,17 +180,19 @@ class PandanetGame extends Game {
       final stonesA = int.parse(timeMatch.group(7)!);
       final stonesB = int.parse(timeMatch.group(8)!);
 
+      // All fields use remaining/total format regardless of byoFlag.
+      // byoFlag=0: in main time, byoFlag=1: in byo-yomi
       final CanadianByoyomiTimeState state;
       if (byoFlag == 0) {
-        // In main time: main_a = used, main_b = total
+        // In main time: main_a = remaining main seconds
         state = CanadianByoyomiTimeState(
-          mainTimeLeft: Duration(seconds: mainB - mainA),
+          mainTimeLeft: Duration(seconds: mainA),
           periodTimeLeft: Duration(seconds: byoB),
           stonesRemaining: stonesB,
           stonesPerPeriod: stonesB,
         );
       } else {
-        // In byo-yomi: byo_a = remaining, stones_a = remaining
+        // In byo-yomi: main exhausted, byo_a = remaining period seconds
         state = CanadianByoyomiTimeState(
           mainTimeLeft: Duration.zero,
           periodTimeLeft: Duration(seconds: byoA),
