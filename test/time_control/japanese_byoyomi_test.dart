@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wqhub/game_client/time_control/japanese_byoyomi.dart';
-import 'package:wqhub/game_client/time_control/time_state.dart';
 
 void main() {
   group('JapaneseByoyomiTimeState', () {
