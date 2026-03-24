@@ -231,24 +231,37 @@ class PandanetGame extends Game {
       }
     }
 
-    if (!isThisGame && !isMoveLine) return;
-
-    final mv =
-        RegExp(r'\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})').firstMatch(text);
-    if (mv != null) {
-      final col = mv.group(1) == 'B' ? wq.Color.black : wq.Color.white;
-      final parsed = parseCoordinate(mv.group(2)!);
-      _moveController.add((col: col, p: parsed));
-
-      // Update timers: the player who just moved stops; the next player starts
-      _applyPendingTimers(lastMoveColor: col);
+    // Detect resignation: "9 <player> has resigned the game."
+    if (text.contains('has resigned the game') && _lastResult == null) {
+      // Determine who resigned by checking which player name appears
+      final whiteUser = white.value.username ?? '';
+      final blackUser = black.value.username ?? '';
+      wq.Color winner;
+      if (text.contains(whiteUser) && whiteUser.isNotEmpty) {
+        winner = wq.Color.black; // white resigned → black wins
+      } else if (text.contains(blackUser) && blackUser.isNotEmpty) {
+        winner = wq.Color.white; // black resigned → white wins
+      } else {
+        // Fallback: if we resigned, opponent wins
+        winner = myColor == wq.Color.white ? wq.Color.black : wq.Color.white;
+      }
+      _logger.info('Resignation detected. Winner: ${winner.name}');
+      _blackTimer.stop();
+      _whiteTimer.stop();
+      _finalizeResult(GameResult(
+        winner: winner,
+        result: 'Resign',
+        description: null,
+      ));
       return;
     }
 
-    final rz =
+    // Detect resignation via broadcast: "21 {Game <id>: ... : White/Black resigns.}"
+    final rzBroadcast =
         RegExp('Game\\s+$id:.*:\\s+(Black|White)\\s+resigns').firstMatch(text);
-    if (rz != null && _lastResult == null) {
-      final loser = rz.group(1) == 'Black' ? wq.Color.black : wq.Color.white;
+    if (rzBroadcast != null && _lastResult == null) {
+      final loser = rzBroadcast.group(1) == 'Black' ? wq.Color.black : wq.Color.white;
+      _logger.info('Resignation broadcast detected. Loser: ${loser.name}');
       _blackTimer.stop();
       _whiteTimer.stop();
       _finalizeResult(GameResult(
@@ -259,10 +272,35 @@ class PandanetGame extends Game {
       return;
     }
 
+    // Detect "lost the game ... due to nocount-resignation" as a fallback
+    if (text.contains('lost the game') && text.contains('resignation') && _lastResult == null) {
+      final whiteUser = white.value.username ?? '';
+      final blackUser = black.value.username ?? '';
+      wq.Color winner;
+      if (text.contains(whiteUser) && whiteUser.isNotEmpty) {
+        winner = wq.Color.black;
+      } else if (text.contains(blackUser) && blackUser.isNotEmpty) {
+        winner = wq.Color.white;
+      } else {
+        winner = myColor == wq.Color.white ? wq.Color.black : wq.Color.white;
+      }
+      _logger.info('Resignation (nocount) detected. Winner: ${winner.name}');
+      _blackTimer.stop();
+      _whiteTimer.stop();
+      _finalizeResult(GameResult(
+        winner: winner,
+        result: 'Resign',
+        description: null,
+      ));
+      return;
+    }
+
+    // Detect scoring result: "The result is B+3.5" or "The result is W+R"
     final fin = RegExp(r'The result is\s+([BW])\+([0-9.R]+)').firstMatch(text);
     if (fin != null && _lastResult == null) {
       final winner = fin.group(1) == 'B' ? wq.Color.black : wq.Color.white;
       final desc = fin.group(2)!;
+      _logger.info('Score result: ${winner.name} wins by $desc');
       _blackTimer.stop();
       _whiteTimer.stop();
       _finalizeResult(GameResult(
@@ -276,6 +314,7 @@ class PandanetGame extends Game {
     // Handle time forfeit
     if (text.contains('forfeits on time') && _lastResult == null) {
       final whiteForfeits = text.contains('White forfeits');
+      _logger.info('Time forfeit: ${whiteForfeits ? "white" : "black"} loses');
       _blackTimer.stop();
       _whiteTimer.stop();
       _finalizeResult(GameResult(
@@ -283,6 +322,20 @@ class PandanetGame extends Game {
         result: 'Time',
         description: null,
       ));
+      return;
+    }
+
+    if (!isThisGame && !isMoveLine) return;
+
+    final mv =
+        RegExp(r'\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})').firstMatch(text);
+    if (mv != null) {
+      final col = mv.group(1) == 'B' ? wq.Color.black : wq.Color.white;
+      final parsed = parseCoordinate(mv.group(2)!);
+      _moveController.add((col: col, p: parsed));
+
+      // Update timers: the player who just moved stops; the next player starts
+      _applyPendingTimers(lastMoveColor: col);
       return;
     }
   }
