@@ -284,7 +284,7 @@ class PandanetTcpManager {
     int boardSize, {
     int maxWeaker = 3,
     int maxStronger = 3,
-    bool ratedOnly = true,
+    bool ratedOnly = false, // TODO: change back to true for production
   }) {
     send('seek entry $configId $boardSize $maxWeaker $maxStronger ${ratedOnly ? 1 : 0}');
   }
