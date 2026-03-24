@@ -107,6 +107,14 @@ class PandanetGame extends Game {
       }
       _handicapApplied = true;
     }
+
+    // Start the timer for the player whose turn it is.
+    // In an even game, black moves first. With handicap, white moves first.
+    if (handicap >= 2) {
+      _whiteTimer.start(initialTimeState);
+    } else {
+      _blackTimer.start(initialTimeState);
+    }
   }
 
   List<String> get _goLetters =>
@@ -119,8 +127,15 @@ class PandanetGame extends Game {
   CanadianByoyomiTimeState? _pendingBlackTime;
   CanadianByoyomiTimeState? _pendingWhiteTime;
 
-  void _onMessage(String line) {
-    final text = line.trim();
+  void _onMessage(String message) {
+    // Server sends multi-line batched messages. Process each line separately.
+    for (final line in message.split('\n')) {
+      _processLine(line.trim());
+    }
+  }
+
+  void _processLine(String text) {
+    if (text.isEmpty) return;
 
     final handiMatch = RegExp(r'\(B\):\s*Handicap\s+(\d+)').firstMatch(text);
     if (handiMatch != null) {
