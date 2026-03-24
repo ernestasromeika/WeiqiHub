@@ -27,6 +27,7 @@ class PandanetGame extends Game {
   GameResult? _lastResult;
   StreamSubscription<String>? _sub;
   bool _handicapApplied = false;
+  bool _restoringMoves = false;
   int _lastProcessedMoveNum = -1;
   static List<(int, int)> handicapPoints19(int n) {
     // TODO: refactor this mess.
@@ -338,6 +339,13 @@ class PandanetGame extends Game {
       final col = mv.group(2) == 'B' ? wq.Color.black : wq.Color.white;
       final parsed = parseCoordinate(mv.group(3)!);
 
+      // During restoration, accept all moves (including our own color)
+      if (_restoringMoves) {
+        _lastProcessedMoveNum = moveNum;
+        _moveController.add((col: col, p: parsed));
+        return;
+      }
+
       // Skip if we already processed this move number (own move echo)
       if (moveNum <= _lastProcessedMoveNum) {
         _logger.info('Skipping duplicate move $moveNum');
@@ -422,11 +430,18 @@ class PandanetGame extends Game {
     return '$letter$number';
   }
 
-  /// Replay a move from game history (for restoration).
-  /// Does NOT send to the server -- just updates the board.
-  void replayMove(wq.Move move) {
-    _lastProcessedMoveNum++;
-    _moveController.add(move);
+  /// Request the server to replay all moves for this game.
+  /// The moves flow through _processLine and get added to the stream.
+  Future<void> restoreMoves() async {
+    _restoringMoves = true;
+    _lastProcessedMoveNum = -1;
+    tcp.send('moves $id');
+    // Wait for the moves to arrive and be processed
+    // The server sends them immediately, we just need a brief delay
+    // for the TCP buffer to flush
+    await Future.delayed(const Duration(seconds: 3));
+    _restoringMoves = false;
+    _logger.info('Move restoration complete. Last move: $_lastProcessedMoveNum');
   }
 
   @override

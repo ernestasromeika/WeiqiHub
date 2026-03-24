@@ -222,19 +222,13 @@ class PandaNetGameClient extends GameClient {
         return null;
       }
 
-      // Get all previous moves to reconstruct board state
+      // Restore all previous moves by requesting them from the server.
+      // The moves flow through PandanetGame._processLine automatically.
       try {
-        final moveLines = await _tcpManager.getGameMoves(int.parse(game.id));
-        final previousMoves = _parseMoveLines(moveLines, game.boardSize);
-        _logger.info('Restored ${previousMoves.length} moves for game ${game.id}');
-
-        // Replay moves onto the game's move stream
-        for (final move in previousMoves) {
-          game.replayMove(move);
-        }
+        await game.restoreMoves();
+        _logger.info('Move restoration complete for game ${game.id}');
       } catch (e) {
-        _logger.warning('Failed to get moves for restoration: $e');
-        // Game is still loaded, just without move history on board
+        _logger.warning('Failed to restore moves: $e');
       }
 
       return game;
@@ -423,37 +417,6 @@ class PandaNetGameClient extends GameClient {
       subscription?.cancel();
       return null;
     });
-  }
-
-  /// Parse move lines from the `moves` command into a list of wq.Move.
-  List<wq.Move> _parseMoveLines(List<String> lines, int boardSize) {
-    final goLetters = List.generate(19, (i) => String.fromCharCode(i + 65))
-        .where((c) => c != 'I')
-        .toList(growable: false);
-
-    final moves = <wq.Move>[];
-    for (final line in lines) {
-      // Match: "15  N(B): Q16" or "15  N(W): C1 C2" (with captures)
-      final match = RegExp(r'\d+\s*\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})').firstMatch(line);
-      if (match != null) {
-        final colorStr = match.group(1)!;
-        final coord = match.group(2)!;
-
-        // Skip handicap lines
-        if (coord.toLowerCase() == 'handicap') continue;
-
-        final col = colorStr == 'B' ? wq.Color.black : wq.Color.white;
-        final letter = coord[0].toUpperCase();
-        final number = int.tryParse(coord.substring(1)) ?? 1;
-        final x = boardSize - number;
-        final y = goLetters.indexOf(letter);
-
-        if (y >= 0) {
-          moves.add((col: col, p: (x, y)));
-        }
-      }
-    }
-    return moves;
   }
 
   @override
