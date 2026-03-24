@@ -27,6 +27,7 @@ class PandanetGame extends Game {
   GameResult? _lastResult;
   StreamSubscription<String>? _sub;
   bool _handicapApplied = false;
+  int _lastProcessedMoveNum = -1;
   static List<(int, int)> handicapPoints19(int n) {
     // TODO: refactor this mess.
     const pts = <(int, int)>[
@@ -327,12 +328,28 @@ class PandanetGame extends Game {
 
     if (!isThisGame && !isMoveLine) return;
 
+    // Parse move line: "15  <move_num>(<color>): <coord> [<captured>]"
     final mv =
-        RegExp(r'\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})').firstMatch(text);
+        RegExp(r'(\d+)\s*\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})').firstMatch(text);
     if (mv != null) {
-      final col = mv.group(1) == 'B' ? wq.Color.black : wq.Color.white;
-      final parsed = parseCoordinate(mv.group(2)!);
-      _moveController.add((col: col, p: parsed));
+      final moveNum = int.parse(mv.group(1)!);
+      final col = mv.group(2) == 'B' ? wq.Color.black : wq.Color.white;
+      final parsed = parseCoordinate(mv.group(3)!);
+
+      // Skip if we already processed this move number (own move echo)
+      if (moveNum <= _lastProcessedMoveNum) {
+        _logger.info('Skipping duplicate move $moveNum');
+        // Still apply timers from server update even for our own echoed move
+        _applyPendingTimers(lastMoveColor: col);
+        return;
+      }
+      _lastProcessedMoveNum = moveNum;
+
+      // Only add to move stream if it's the opponent's move
+      // (our own moves were already added in move())
+      if (col != myColor) {
+        _moveController.add((col: col, p: parsed));
+      }
 
       // Update timers: the player who just moved stops; the next player starts
       _applyPendingTimers(lastMoveColor: col);
@@ -408,6 +425,7 @@ class PandanetGame extends Game {
 
   @override
   Future<void> move(wq.Move move) async {
+    _lastProcessedMoveNum++; // Pre-increment so the echo is skipped
     final coords = formatCoordinates(move.p);
     tcp.send(coords);
     _moveController.add(move);
