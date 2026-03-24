@@ -82,6 +82,7 @@ class _AutomatchPageState extends State<AutomatchPage> {
                 ElevatedButton(
                     onPressed: () {
                       widget.gameClient.stopAutomatch();
+                      Navigator.pop(context);
                     },
                     child: Text(loc.cancel)),
               ],
