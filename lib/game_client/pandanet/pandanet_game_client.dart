@@ -73,31 +73,32 @@ class PandaNetGameClient extends GameClient {
   IList<AutomatchPreset> _buildAutomatchPresets() {
     final configs =
         _seekConfigs.isNotEmpty ? _seekConfigs : _fallbackSeekConfigs;
+    // Sort by period time ascending (matching GoPanda2 dropdown order)
+    final sorted = List<SeekConfig>.from(configs)
+      ..sort((a, b) => a.periodTime.compareTo(b.periodTime));
     final presets = <AutomatchPreset>[];
 
-    for (final config in configs) {
-      for (final boardSize in [9, 13, 19]) {
-        presets.add(AutomatchPreset(
-          id: 'seek_${config.id}_$boardSize',
-          boardSize: boardSize,
-          variant: Variant.standard,
-          rules: Rules.japanese,
-          timeControl: CanadianByoyomiTimeControl(
-            mainTime: config.mainTime,
-            periodTime: config.periodTime,
-            stonesPerPeriod: config.stonesPerPeriod,
-          ),
-        ));
-      }
+    for (final config in sorted) {
+      presets.add(AutomatchPreset(
+        id: 'seek_${config.id}_19',
+        boardSize: 19,
+        variant: Variant.standard,
+        rules: Rules.japanese,
+        timeControl: CanadianByoyomiTimeControl(
+          mainTime: config.mainTime,
+          periodTime: config.periodTime,
+          stonesPerPeriod: config.stonesPerPeriod,
+        ),
+      ));
     }
     return presets.lock;
   }
 
   static final List<SeekConfig> _fallbackSeekConfigs = [
     const SeekConfig(
-      id: 0,
+      id: 2,
       mainTime: Duration(seconds: 60),
-      periodTime: Duration(seconds: 600),
+      periodTime: Duration(seconds: 300),
       stonesPerPeriod: 25,
     ),
     const SeekConfig(
@@ -107,9 +108,9 @@ class PandaNetGameClient extends GameClient {
       stonesPerPeriod: 25,
     ),
     const SeekConfig(
-      id: 2,
+      id: 0,
       mainTime: Duration(seconds: 60),
-      periodTime: Duration(seconds: 300),
+      periodTime: Duration(seconds: 600),
       stonesPerPeriod: 25,
     ),
     const SeekConfig(
