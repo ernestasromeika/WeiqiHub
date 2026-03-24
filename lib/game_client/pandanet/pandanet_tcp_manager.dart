@@ -279,8 +279,14 @@ class PandanetTcpManager {
     );
   }
 
-  void sendSeekEntry(int configId, int boardSize) {
-    send('seek entry $configId $boardSize');
+  void sendSeekEntry(
+    int configId,
+    int boardSize, {
+    int maxWeaker = 3,
+    int maxStronger = 3,
+    bool ratedOnly = true,
+  }) {
+    send('seek entry $configId $boardSize $maxWeaker $maxStronger ${ratedOnly ? 1 : 0}');
   }
 
   void sendSeekCancel() {

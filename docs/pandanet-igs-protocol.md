@@ -53,18 +53,18 @@ toggle seek true
 ```
 → seek config_list
 ← 63 CONFIG_LIST_START <count>
-← 63 CONFIG_LIST <id> <main_time_sec> <byo_total_sec> <byo_periods> <unknown1> <unknown2>
+← 63 CONFIG_LIST <id> <main_time_sec> <byo_total_sec> <stones_per_period> <unknown1> <unknown2>
 ← ...
 ← 63 CONFIG_LIST_END
 ```
 
 **Observed configs (as of 2026-03-24):**
-| ID | Main Time | Byo-yomi Total | Periods | Per Period | Label (estimated) |
-|----|-----------|---------------|---------|------------|-------------------|
-| 0  | 60s (1m)  | 600s (10m)    | 25      | 24s        | Slow              |
-| 1  | 60s (1m)  | 420s (7m)     | 25      | ~17s       | Fast              |
-| 2  | 60s (1m)  | 300s (5m)     | 25      | 12s        | Blitz             |
-| 3  | 60s (1m)  | 900s (15m)    | 25      | 36s        | Very Slow         |
+| ID | Main Time | Byo-yomi Time | Stones | GoPanda2 Label |
+|----|-----------|--------------|--------|----------------|
+| 0  | 60s (1m)  | 600s (10m)   | 25     | 1 min & 10 min / 25 stones |
+| 1  | 60s (1m)  | 420s (7m)    | 25     | 1 min & 7 min / 25 stones  |
+| 2  | 60s (1m)  | 300s (5m)    | 25     | 1 min & 5 min / 25 stones  |
+| 3  | 60s (1m)  | 900s (15m)   | 25     | 1 min & 15 min / 25 stones |
 
 **Note:** The byo-yomi here is **Canadian-style**: you must play all 25 stones within
 the total byo time (e.g. 25 stones in 600 seconds for config 0). This is NOT
@@ -72,22 +72,25 @@ per-move byo-yomi like Japanese-style.
 
 ### Enter Seek Queue
 ```
-→ seek entry <config_id> <board_size> [<max_handicap>]
-← 63 ENTRY <main_time> <byo_total> <periods> <unk1> <unk2> <board_size> <unk3> <unk4> <unk5>
+→ seek entry <config_id> <board_size> <max_weaker> <max_stronger> <rated_only>
+← 63 ENTRY <main_time> <byo_total> <stones> <unk1> <unk2> <board_size> <unk3> <unk4> <unk5>
 ```
 
-**Parameters:**
+**Parameters (confirmed via GoPanda2 UI + live testing):**
 - `config_id` — Time config from CONFIG_LIST (0-3)
 - `board_size` — Board size: 9, 13, or 19
-- `max_handicap` — (optional) Maximum handicap stones. Default 0 (even games only).
-  Higher values allow handicap games with players of different rank.
+- `max_weaker` — Max handicap stones for a weaker opponent (0-9). 0 = even only.
+- `max_stronger` — Max handicap stones for a stronger opponent (0-9). 0 = even only.
+- `rated_only` — 1 for rated games only, 0 for any
+
+The short form `seek entry <config_id> <board_size>` also works (defaults to even, any).
 
 **Examples:**
 ```
-seek entry 0 19      → 63 ENTRY 60 600 25 0 0 19 0 0 0   (even game, 19x19, slow)
-seek entry 0 9       → 63 ENTRY 60 600 25 0 0 9 0 0 0    (even game, 9x9, slow)
-seek entry 1 19      → 63 ENTRY 60 420 25 0 0 19 0 0 0   (even game, 19x19, fast)
-seek entry 2 13      → 63 ENTRY 60 300 25 0 0 13 0 0 0   (even game, 13x13, blitz)
+seek entry 0 19 3 3 1 → (19x19, slow, ±3 handicap, rated)
+seek entry 0 19 0 0 1 → (19x19, slow, even only, rated)
+seek entry 0 19       → (19x19, slow, defaults)
+seek entry 1 19 3 3 1 → (19x19, fast, ±3 handicap, rated)
 seek entry 3 19      → 63 ENTRY 60 900 25 0 0 19 0 0 0   (even game, 19x19, very slow)
 seek entry 0 19 1    → (may match with 1 stone handicap difference)
 seek entry 0 19 5    → (may match with up to 5 stones handicap difference)
