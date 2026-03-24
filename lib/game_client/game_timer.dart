@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'package:clock/clock.dart';
 import 'package:flutter/widgets.dart';
-import 'package:wqhub/game_client/time_state.dart';
+import 'package:wqhub/game_client/time_control/time_control.dart';
+import 'package:wqhub/game_client/time_control/time_state.dart';
 
-/// A timer that manages Byo-Yomi time and emits TimeState updates.
+/// A timer that manages time control countdown and emits TimeState updates.
 ///
-/// This class handles the countdown logic for both main time and overtime periods,
+/// This class delegates the countdown logic to a [TimeControl] instance,
 /// emitting updates once per second when active.
 ///
 /// The value is a tuple of (tick counter, TimeState). The tick counter increments
@@ -15,8 +16,10 @@ class GameTimer extends ValueNotifier<(int, TimeState)> {
   Timer? _timer;
   TimeState _baseState;
   DateTime? _startTime;
+  final TimeControl timeControl;
 
   GameTimer({
+    required this.timeControl,
     required TimeState initialState,
   })  : _baseState = initialState,
         super((0, initialState));
@@ -30,7 +33,7 @@ class GameTimer extends ValueNotifier<(int, TimeState)> {
       return _baseState;
     }
     final elapsed = clock.now().difference(_startTime!);
-    return _calculateTimeState(_baseState, elapsed);
+    return timeControl.tick(_baseState, elapsed);
   }
 
   /// Start or restart the timer with a new time state.
@@ -68,46 +71,9 @@ class GameTimer extends ValueNotifier<(int, TimeState)> {
     if (_startTime == null) return;
 
     final elapsed = clock.now().difference(_startTime!);
-    final newState = _calculateTimeState(_baseState, elapsed);
+    final newState = timeControl.tick(_baseState, elapsed);
 
     value = (value.$1 + 1, newState);
-  }
-
-  /// Calculate the time state after a given duration has elapsed.
-  TimeState _calculateTimeState(TimeState baseState, Duration elapsed) {
-    var remainingElapsed = elapsed;
-    var mainTimeLeft = baseState.mainTimeLeft;
-    var periodTimeLeft = baseState.periodTimeLeft;
-    var periodCount = baseState.periodCount;
-
-    // First, consume main time
-    if (mainTimeLeft > Duration.zero) {
-      if (remainingElapsed <= mainTimeLeft) {
-        mainTimeLeft -= remainingElapsed;
-        remainingElapsed = Duration.zero;
-      } else {
-        remainingElapsed -= mainTimeLeft;
-        mainTimeLeft = Duration.zero;
-      }
-    }
-
-    // Then, consume byoyomi periods
-    while (periodCount > 0 && remainingElapsed >= periodTimeLeft) {
-      remainingElapsed -= periodTimeLeft;
-      periodCount -= 1;
-    }
-
-    if (periodCount > 0) {
-      periodTimeLeft -= remainingElapsed;
-    } else {
-      periodTimeLeft = Duration.zero;
-    }
-
-    return TimeState(
-      mainTimeLeft: mainTimeLeft,
-      periodTimeLeft: periodTimeLeft,
-      periodCount: periodCount,
-    );
   }
 
   /// Dispose of the timer and release resources.
