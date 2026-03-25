@@ -36,3 +36,8 @@ web/
 
 # Localization
 untranslated-messages.txt
+
+# Dev/debug artifacts
+igs_explorer.py
+flutter_01.png
+nul
