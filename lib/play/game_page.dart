@@ -142,14 +142,20 @@ class _GamePageState extends State<GamePage> {
       _turn = mv.col.opposite;
     }
 
-    widget.game.moves().forEach((mv) {
+    widget.game.moves().listen((mv) {
       if (mv == null) {
         onPass();
         widget.gameListener?.onPass(widget.game.id);
       } else {
-        onMove(mv);
-        widget.gameListener?.onMove(widget.game.id, mv);
+        try {
+          onMove(mv);
+          widget.gameListener?.onMove(widget.game.id, mv);
+        } catch (e) {
+          debugPrint('ERROR in onMove: $e');
+        }
       }
+    }, onError: (e) {
+      debugPrint('ERROR in moves stream: $e');
     });
     widget.game.result().then((res) {
       onGameResult(res);
