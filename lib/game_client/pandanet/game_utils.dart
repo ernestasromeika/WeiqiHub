@@ -6,11 +6,12 @@ extension RankParsing on Rank {
   /// Keeps only digits and k/d/p, discards everything else.
   static Rank fromString(String input) {
     if (input.isEmpty) return Rank.unknown;
-    // Keep only digits and k/d/p
+    // Keep only digits and k/d/p, then take up to the first rank letter
+    // so trailing numbers (e.g. "1k* 28" → "1k28") don't pollute the match.
     final cleaned = input.toLowerCase().replaceAll(RegExp(r'[^0-9kdp]'), '');
     if (cleaned.isEmpty) return Rank.unknown;
 
-    final match = RegExp(r'^(\d+)([kdp])$').firstMatch(cleaned);
+    final match = RegExp(r'^(\d+)([kdp])').firstMatch(cleaned);
     if (match == null) return Rank.unknown;
 
     final name = '${match.group(2)}${match.group(1)}'; // e.g. "k5", "d3", "p1"
