@@ -266,7 +266,8 @@ class PandanetTcpManager {
       } else if (t.startsWith('9 Rating:')) {
         rating = t.split('Rating:').last.trim();
       } else if (t.startsWith('9 Rank:')) {
-        rank = t.split('Rank:').last.trim();
+        // "9 Rank:  1k* 28" → take first word "1k*"
+        rank = t.split('Rank:').last.trim().split(RegExp(r'\s+')).first;
       } else if (t.startsWith('9 Wins:')) {
         final v = int.tryParse(t.split('Wins:').last.trim());
         if (v != null) wins = v;
