@@ -177,7 +177,8 @@ class PandanetTcpManager {
 
   void _handleFullMessage(String msg) {
     // Log ALL messages before noise filtering for debugging
-    _logger.fine('<<< RAW: ${msg.substring(0, msg.length > 120 ? 120 : msg.length)}');
+    _logger.fine(
+        '<<< RAW: ${msg.substring(0, msg.length > 120 ? 120 : msg.length)}');
     if (_isNoise(msg)) return;
     _logger.info('<<< $msg');
     _incoming.add(msg);
@@ -220,19 +221,30 @@ class PandanetTcpManager {
       _storedGamesCompleter!.complete(games);
     }
 
-    // Handle moves collection
+    // Handle moves collection.
+    // The `moves` response contains "15 Game <id> I:" header + move lines + "1 6".
+    // We only complete when we've seen at least the header line to avoid
+    // being tricked by unrelated "1 6" prompts (e.g. from "say Hi!").
     if (_collectingMoves) {
+      bool sawMovesHeader =
+          _movesBuffer.isNotEmpty; // already saw header before
       for (final line in msg.split('\n')) {
         final t = line.trim();
+        // The moves response always starts with "15 Game <id> I:"
+        if (t.contains('15 Game') && t.contains(' I: ')) {
+          sawMovesHeader = true;
+        }
         // Collect move lines: "15  N(B): XY" or "15  N(W): XY"
         if (RegExp(r'^\s*15\s+\d+\s*\([BW]\):').hasMatch(t)) {
           _movesBuffer.add(t);
         }
       }
-      // Moves response ends with "1 6"
-      if (msg.contains('1 6') || msg.contains('1 5')) {
+      // Only complete if we saw the moves header (proving this is the moves response)
+      if (sawMovesHeader && (msg.contains('1 6') || msg.contains('1 5'))) {
         _collectingMoves = false;
         if (_movesCompleter != null && !_movesCompleter!.isCompleted) {
+          _logger
+              .info('Moves collection complete: ${_movesBuffer.length} moves');
           _movesCompleter!.complete(List<String>.from(_movesBuffer));
           _movesBuffer.clear();
         }
@@ -327,7 +339,8 @@ class PandanetTcpManager {
     int maxStronger = 3,
     bool ratedOnly = true,
   }) {
-    send('seek entry $configId $boardSize $maxWeaker $maxStronger ${ratedOnly ? 1 : 0}');
+    send(
+        'seek entry $configId $boardSize $maxWeaker $maxStronger ${ratedOnly ? 1 : 0}');
   }
 
   void sendSeekCancel() {

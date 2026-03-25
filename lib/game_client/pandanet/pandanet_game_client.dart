@@ -222,10 +222,10 @@ class PandaNetGameClient extends GameClient {
         return null;
       }
 
-      // Wait briefly for the load response to fully process before requesting moves
-      await Future.delayed(const Duration(seconds: 1));
-
-      // Get all previous moves and set them on the game
+      // Get all previous moves and set them on the game.
+      // getGameMoves() waits for the actual moves response (identified by
+      // its "15 Game <id> I:" header), so it won't be tricked by unrelated
+      // "1 6" prompts from other commands.
       try {
         final moveLines = await _tcpManager.getGameMoves(int.parse(game.id));
         final moves = _parseMoveLines(moveLines, game.boardSize);
