@@ -51,7 +51,7 @@ class PandanetGame extends Game {
       [0, 1, 2, 3], // 4
       [0, 1, 2, 3, 4], // 5
       [0, 1, 2, 3, 5, 6], // 6
-      [5, 4, 6], // 7
+      [0, 1, 2, 3, 5, 4, 6], // 7
       [0, 1, 2, 3, 5, 6, 7, 8], // 8
       [0, 1, 2, 3, 4, 5, 6, 7, 8], // 9
     ];
@@ -78,7 +78,7 @@ class PandanetGame extends Game {
           komi: komi,
           myColor: myColor,
           timeControl: timeControl,
-          previousMoves: previousMoves,
+          previousMoves: List<wq.Move>.of(previousMoves),
         ) {
     _resultCompleter = Completer<GameResult>();
 
@@ -125,7 +125,7 @@ class PandanetGame extends Game {
   }
 
   List<String> get _goLetters =>
-      List.generate(19, (i) => String.fromCharCode(i + 65))
+      List.generate(20, (i) => String.fromCharCode(i + 65))
           .where((c) => c != 'I')
           .toList(growable: false);
 
