@@ -222,11 +222,15 @@ class PandaNetGameClient extends GameClient {
         return null;
       }
 
-      // Restore all previous moves by requesting them from the server.
-      // The moves flow through PandanetGame._processLine automatically.
+      // Wait briefly for the load response to fully process before requesting moves
+      await Future.delayed(const Duration(seconds: 1));
+
+      // Get all previous moves and set them on the game
       try {
-        await game.restoreMoves();
-        _logger.info('Move restoration complete for game ${game.id}');
+        final moveLines = await _tcpManager.getGameMoves(int.parse(game.id));
+        final moves = _parseMoveLines(moveLines, game.boardSize);
+        game.setRestoredMoves(moves);
+        _logger.info('Restored ${moves.length} moves for game ${game.id}');
       } catch (e) {
         _logger.warning('Failed to restore moves: $e');
       }
@@ -272,7 +276,8 @@ class PandaNetGameClient extends GameClient {
     }
 
     // Send seek entry
-    _logger.info('Sending seek entry: configId=$configId, boardSize=$boardSize');
+    _logger
+        .info('Sending seek entry: configId=$configId, boardSize=$boardSize');
     _tcpManager.sendSeekEntry(configId, boardSize);
 
     // Wait for game start
@@ -308,7 +313,8 @@ class PandaNetGameClient extends GameClient {
     CanadianByoyomiTimeControl? timeControl;
 
     subscription = _tcpManager.messages.listen((message) {
-      _logger.info('_parseGameStart received: ${message.substring(0, message.length > 200 ? 200 : message.length)}');
+      _logger.info(
+          '_parseGameStart received: ${message.substring(0, message.length > 200 ? 200 : message.length)}');
       final text = message.trim();
 
       // 63 OPPONENT_FOUND <opponent> (seek only, not load)
@@ -318,7 +324,9 @@ class PandaNetGameClient extends GameClient {
       }
 
       // 15 Game <id> I: <white> (...) vs <black> (...)
-      if (text.contains('15 Game') && text.contains(' I: ') && text.contains(' vs ')) {
+      if (text.contains('15 Game') &&
+          text.contains(' I: ') &&
+          text.contains(' vs ')) {
         final gameIdMatch = RegExp(r'15 Game (\d+)').firstMatch(text);
         final playersMatch =
             RegExp(r'I:\s*(\w+)\s*\(.*?\)\s*vs\s+(\w+)').firstMatch(text);
@@ -326,7 +334,8 @@ class PandaNetGameClient extends GameClient {
         gameId = gameIdMatch?.group(1);
         whitePlayer = playersMatch?.group(1);
         blackPlayer = playersMatch?.group(2);
-        _logger.info('Game line: id=$gameId, white=$whitePlayer, black=$blackPlayer');
+        _logger.info(
+            'Game line: id=$gameId, white=$whitePlayer, black=$blackPlayer');
       }
 
       // 15 TIME:<id>:<player>(<color>): ...
@@ -355,7 +364,8 @@ class PandaNetGameClient extends GameClient {
         boardSize = int.parse(propsMatch.group(1)!);
         handicap = int.parse(propsMatch.group(2)!);
         komi = double.parse(propsMatch.group(3)!);
-        _logger.info('GAMERPROPS: board=$boardSize, handicap=$handicap, komi=$komi');
+        _logger.info(
+            'GAMERPROPS: board=$boardSize, handicap=$handicap, komi=$komi');
       }
 
       // Game is ready when we see "Creating match" or "accepted" or "1 6" with a valid gameId
@@ -377,7 +387,7 @@ class PandaNetGameClient extends GameClient {
           myColor: handicap > 0 ? wq.Color.white : myColor,
           handicap: handicap,
           komi: komi,
-          previousMoves: const [], // Moves are replayed separately for restoration
+          previousMoves: [], // Mutable: may be populated by setRestoredMoves()
         );
 
         game.white.value = UserInfo.empty().copyWith(
@@ -419,6 +429,35 @@ class PandaNetGameClient extends GameClient {
     });
   }
 
+  /// Parse move lines from the `moves` command into a list of wq.Move.
+  List<wq.Move> _parseMoveLines(List<String> lines, int boardSize) {
+    final goLetters = List.generate(19, (i) => String.fromCharCode(i + 65))
+        .where((c) => c != 'I')
+        .toList(growable: false);
+
+    final moves = <wq.Move>[];
+    for (final line in lines) {
+      final match = RegExp(r'\d+\s*\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})')
+          .firstMatch(line);
+      if (match != null) {
+        final colorStr = match.group(1)!;
+        final coord = match.group(2)!;
+        if (coord.toLowerCase() == 'handicap') continue;
+
+        final col = colorStr == 'B' ? wq.Color.black : wq.Color.white;
+        final letter = coord[0].toUpperCase();
+        final number = int.tryParse(coord.substring(1)) ?? 1;
+        final x = boardSize - number;
+        final y = goLetters.indexOf(letter);
+
+        if (y >= 0) {
+          moves.add((col: col, p: (x, y)));
+        }
+      }
+    }
+    return moves;
+  }
+
   @override
   void stopAutomatch() {
     _tcpManager.sendSeekCancel();
@@ -450,7 +489,7 @@ class PandaNetGameClient extends GameClient {
       throw Exception('Failed to fetch game list: ${response.statusCode}');
     }
     final games = parseGameList(response.body, RankParsing.fromString);
-    for (final game in games){
+    for (final game in games) {
       _logger.info(game.id);
     }
     return games;

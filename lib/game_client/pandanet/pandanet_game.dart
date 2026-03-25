@@ -264,7 +264,8 @@ class PandanetGame extends Game {
     final rzBroadcast =
         RegExp('Game\\s+$id:.*:\\s+(Black|White)\\s+resigns').firstMatch(text);
     if (rzBroadcast != null && _lastResult == null) {
-      final loser = rzBroadcast.group(1) == 'Black' ? wq.Color.black : wq.Color.white;
+      final loser =
+          rzBroadcast.group(1) == 'Black' ? wq.Color.black : wq.Color.white;
       _logger.info('Resignation broadcast detected. Loser: ${loser.name}');
       _blackTimer.stop();
       _whiteTimer.stop();
@@ -277,7 +278,9 @@ class PandanetGame extends Game {
     }
 
     // Detect "lost the game ... due to nocount-resignation" as a fallback
-    if (text.contains('lost the game') && text.contains('resignation') && _lastResult == null) {
+    if (text.contains('lost the game') &&
+        text.contains('resignation') &&
+        _lastResult == null) {
       final whiteUser = white.value.username ?? '';
       final blackUser = black.value.username ?? '';
       wq.Color winner;
@@ -332,8 +335,8 @@ class PandanetGame extends Game {
     if (!isThisGame && !isMoveLine) return;
 
     // Parse move line: "15  <move_num>(<color>): <coord> [<captured>]"
-    final mv =
-        RegExp(r'(\d+)\s*\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})').firstMatch(text);
+    final mv = RegExp(r'(\d+)\s*\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})')
+        .firstMatch(text);
     if (mv != null) {
       final moveNum = int.parse(mv.group(1)!);
       final col = mv.group(2) == 'B' ? wq.Color.black : wq.Color.white;
@@ -430,18 +433,15 @@ class PandanetGame extends Game {
     return '$letter$number';
   }
 
-  /// Request the server to replay all moves for this game.
-  /// The moves flow through _processLine and get added to the stream.
-  Future<void> restoreMoves() async {
-    _restoringMoves = true;
-    _lastProcessedMoveNum = -1;
-    tcp.send('moves $id');
-    // Wait for the moves to arrive and be processed
-    // The server sends them immediately, we just need a brief delay
-    // for the TCP buffer to flush
-    await Future.delayed(const Duration(seconds: 3));
+  /// Add restored moves to previousMoves and update the move counter.
+  /// Called before the UI subscribes, so moves appear on the board via
+  /// GamePage's previousMoves iteration.
+  void setRestoredMoves(List<wq.Move> moves) {
+    previousMoves.addAll(moves);
+    _lastProcessedMoveNum = moves.length - 1;
     _restoringMoves = false;
-    _logger.info('Move restoration complete. Last move: $_lastProcessedMoveNum');
+    _logger.info(
+        'Set ${moves.length} restored moves. Last move num: $_lastProcessedMoveNum');
   }
 
   @override
