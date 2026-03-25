@@ -390,14 +390,19 @@ class PandaNetGameClient extends GameClient {
           previousMoves: [], // Mutable: may be populated by setRestoredMoves()
         );
 
-        game.white.value = UserInfo.empty().copyWith(
-          userId: whitePlayer,
-          username: whitePlayer,
+        final myRank = _userInfo.value?.rank ?? Rank.unknown;
+        final myName = _userInfo.value?.username ?? username;
+
+        game.white.value = UserInfo(
+          userId: whitePlayer ?? '',
+          username: whitePlayer ?? '',
+          rank: whitePlayer == myName ? myRank : Rank.unknown,
           online: true,
         );
-        game.black.value = UserInfo.empty().copyWith(
-          userId: blackPlayer,
-          username: blackPlayer,
+        game.black.value = UserInfo(
+          userId: blackPlayer ?? '',
+          username: blackPlayer ?? '',
+          rank: blackPlayer == myName ? myRank : Rank.unknown,
           online: true,
         );
 
