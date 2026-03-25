@@ -196,36 +196,35 @@ class PandaNetGameClient extends GameClient {
       }
     }
 
-    // Check for stored/adjourned games
     try {
-      final storedGames = await _tcpManager.getStoredGames();
-      if (storedGames.isEmpty) {
-        _logger.info('No stored games found.');
-        return null;
-      }
-
-      final gameName = storedGames.first;
-      _logger.info('Found stored game: $gameName. Attempting to load...');
-
-      // Load the game -- this triggers game start messages
-      _tcpManager.loadGame(gameName);
-
-      // Wait for game start messages (same as findGame)
-      final game = await _parseGameStart(
+      // Start listening for game start messages IMMEDIATELY.
+      // The opponent may have already loaded the game before we even check.
+      final gameStartFuture = _parseGameStart(
         username: username,
         fallbackTimeControl: _fallbackTimeControl,
-        timeout: const Duration(seconds: 15),
+        timeout: const Duration(seconds: 10),
       );
 
+      // Check for stored/adjourned games
+      final storedGames = await _tcpManager.getStoredGames();
+      if (storedGames.isNotEmpty) {
+        final gameName = storedGames.first;
+        _logger.info('Found stored game: $gameName. Attempting to load...');
+        _tcpManager.loadGame(gameName);
+      } else {
+        _logger.info(
+            'No stored games found. Waiting briefly for opponent-initiated load...');
+      }
+
+      // Wait for game start (from our load OR from opponent's load)
+      final game = await gameStartFuture;
+
       if (game == null) {
-        _logger.warning('Failed to parse game start after loading $gameName');
+        _logger.info('No ongoing game detected.');
         return null;
       }
 
-      // Get all previous moves and set them on the game.
-      // getGameMoves() waits for the actual moves response (identified by
-      // its "15 Game <id> I:" header), so it won't be tricked by unrelated
-      // "1 6" prompts from other commands.
+      // Get all previous moves and set them on the game
       try {
         final moveLines = await _tcpManager.getGameMoves(int.parse(game.id));
         final moves = _parseMoveLines(moveLines, game.boardSize);

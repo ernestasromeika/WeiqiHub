@@ -201,19 +201,17 @@ class PandanetTcpManager {
       }
     }
 
-    // Handle stored games response
-    if (_storedGamesCompleter != null && !_storedGamesCompleter!.isCompleted) {
+    // Handle stored games response.
+    // Only process if the message contains "Found" + "stored games" (the definitive marker).
+    if (_storedGamesCompleter != null &&
+        !_storedGamesCompleter!.isCompleted &&
+        msg.contains('stored games')) {
       final games = <String>[];
       for (final line in msg.split('\n')) {
         final t = line.trim();
-        // Stored game names look like "9 player1-player2" or just "player1-player2"
-        // They contain a hyphen and don't start with "18 Found"
-        if (t.contains('Found') && t.contains('stored games')) {
-          // "18 Found 0 stored games." or "18 Found N stored games."
-          continue;
-        }
-        // Match lines like "9 sugadintas-opponent" or just the game name
-        final nameMatch = RegExp(r'(?:^9\s+)?(\w+-\w+)$').firstMatch(t);
+        if (t.contains('Found') && t.contains('stored games')) continue;
+        // Match lines like "18 sugadintas-opponent" or "9 sugadintas-opponent"
+        final nameMatch = RegExp(r'(?:^(?:9|18)\s+)?(\w+-\w+)$').firstMatch(t);
         if (nameMatch != null) {
           games.add(nameMatch.group(1)!);
         }
