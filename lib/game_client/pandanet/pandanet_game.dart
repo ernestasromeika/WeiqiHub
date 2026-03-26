@@ -9,6 +9,7 @@ import 'package:wqhub/wq/wq.dart' as wq;
 import 'package:wqhub/game_client/time_control/time_control.dart';
 import 'package:wqhub/game_client/time_control/canadian_byoyomi.dart';
 import 'pandanet_tcp_manager.dart';
+import 'game_utils.dart';
 import 'package:wqhub/game_client/rules.dart';
 
 class PandanetGame extends Game {
@@ -124,10 +125,7 @@ class PandanetGame extends Game {
     tcp.send('say Hi!');
   }
 
-  List<String> get _goLetters =>
-      List.generate(20, (i) => String.fromCharCode(i + 65))
-          .where((c) => c != 'I')
-          .toList(growable: false);
+  List<String> get _goLetters => goColumnLetters;
 
   /// Track the last parsed TIME states for black and white, so we can
   /// start the correct timer after a move is received.

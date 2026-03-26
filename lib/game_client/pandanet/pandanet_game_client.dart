@@ -435,9 +435,7 @@ class PandaNetGameClient extends GameClient {
 
   /// Parse move lines from the `moves` command into a list of wq.Move.
   List<wq.Move> _parseMoveLines(List<String> lines, int boardSize) {
-    final goLetters = List.generate(19, (i) => String.fromCharCode(i + 65))
-        .where((c) => c != 'I')
-        .toList(growable: false);
+    final goLetters = goColumnLetters;
 
     final moves = <wq.Move>[];
     for (final line in lines) {

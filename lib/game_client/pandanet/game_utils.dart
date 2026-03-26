@@ -22,6 +22,13 @@ extension RankParsing on Rank {
   }
 }
 
+/// Go board column letters: A-T excluding I (19 columns for 19x19).
+/// Shared across all Pandanet code to avoid duplication.
+final List<String> goColumnLetters =
+    List.generate(20, (i) => String.fromCharCode(i + 65))
+        .where((c) => c != 'I')
+        .toList(growable: false);
+
 bool isSubsequence(String text, String pattern) {
   final textChars = text.characters;
   final patternChars = pattern.characters;
