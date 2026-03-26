@@ -21,6 +21,9 @@ class PandanetGame extends Game {
   final _automaticCountingController = StreamController<bool>.broadcast();
   final _countingResultController =
       StreamController<CountingResult>.broadcast();
+  final _countingResultResponsesController = StreamController<bool>.broadcast();
+  bool _inScoringPhase = false;
+  int _passCount = 0;
 
   late final GameTimer _blackTimer;
   late final GameTimer _whiteTimer;
@@ -153,6 +156,50 @@ class PandanetGame extends Game {
           _moveController.add((col: wq.Color.black, p: p));
         }
       }
+      return;
+    }
+
+    // Detect pass: server sends "N(B): Pass" or "N(W): Pass"
+    if (RegExp(r'\([BW]\):\s*[Pp]ass').hasMatch(text)) {
+      _passCount++;
+      _logger.info('Pass detected. Count: $_passCount');
+      _moveController.add(null); // null = pass in the moves stream
+      return;
+    }
+
+    // Detect scoring phase entry.
+    // IGS sends "You can check your scoring now" or similar after 3 passes.
+    // Also detect "has typed done" for opponent accepting score.
+    if (text.contains('check your scor') ||
+        text.contains('has entered scoring')) {
+      _logger.info('Scoring phase detected.');
+      _inScoringPhase = true;
+      _automaticCountingController
+          .add(true); // triggers GameState.counting in UI
+      return;
+    }
+
+    // Detect opponent done/undo during scoring
+    if (_inScoringPhase && text.contains('has typed done')) {
+      _logger.info('Opponent has typed done.');
+      _countingResultResponsesController.add(true);
+      return;
+    }
+
+    // Detect undo request (resume play from scoring)
+    if (text.contains('undo') && _inScoringPhase) {
+      _logger.info('Undo detected, resuming play from scoring.');
+      _inScoringPhase = false;
+      _passCount = 0;
+      _countingResultResponsesController.add(false);
+      return;
+    }
+
+    // Detect dead stone removal by opponent: "Removing at <coord>"
+    // This is informational -- the board state will be reflected in the final result
+    if (text.contains('emoving at') && _inScoringPhase) {
+      _logger.info('Opponent removed dead stone: $text');
+      // We don't need to act on this -- the UI handles local dead stone marking
       return;
     }
 
@@ -336,6 +383,7 @@ class PandanetGame extends Game {
     final mv = RegExp(r'(\d+)\s*\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})')
         .firstMatch(text);
     if (mv != null) {
+      _passCount = 0; // Regular move resets pass counter
       final moveNum = int.parse(mv.group(1)!);
       final col = mv.group(2) == 'B' ? wq.Color.black : wq.Color.white;
       final parsed = parseCoordinate(mv.group(3)!);
@@ -462,7 +510,13 @@ class PandanetGame extends Game {
   @override
   Future<void> toggleManuallyRemovedStones(
       List<wq.Point> stones, bool removed) async {
-    // TODO: implement manual stone removal for Pandanet scoring
+    // In IGS scoring, clicking a dead stone group sends each stone's
+    // coordinate to the server. The server toggles the group alive/dead.
+    for (final (row, col) in stones) {
+      final coord = formatCoordinates((row, col));
+      _logger.info('Toggle dead stone: $coord (removed=$removed)');
+      tcp.send(coord);
+    }
   }
 
   @override
@@ -473,13 +527,14 @@ class PandanetGame extends Game {
   Stream<CountingResult> countingResults() => _countingResultController.stream;
 
   @override
-  Stream<bool> countingResultResponses() => const Stream.empty();
+  Stream<bool> countingResultResponses() =>
+      _countingResultResponsesController.stream;
 
   @override
   Future<AutomaticCountingInfo> automaticCounting() async {
+    // On IGS, scoring phase starts after 3 consecutive passes.
+    // This sends a pass and waits for the server to enter scoring phase.
     tcp.send('pass');
-    await Future.delayed(const Duration(milliseconds: 500));
-    tcp.send('done');
     return const AutomaticCountingInfo(timeout: Duration(seconds: 30));
   }
 
@@ -496,7 +551,17 @@ class PandanetGame extends Game {
   Future<void> agreeToAutomaticCounting(bool agree) async {}
 
   @override
-  Future<void> acceptCountingResult(bool agree) async {}
+  Future<void> acceptCountingResult(bool agree) async {
+    if (agree) {
+      _logger.info('Accepting counting result (sending done)');
+      tcp.send('done');
+    } else {
+      _logger.info('Rejecting counting result (sending undo)');
+      tcp.send('undo');
+      _inScoringPhase = false;
+      _passCount = 0;
+    }
+  }
 
   void dispose() {
     _sub?.cancel();
@@ -505,6 +570,7 @@ class PandanetGame extends Game {
     _moveController.close();
     _automaticCountingController.close();
     _countingResultController.close();
+    _countingResultResponsesController.close();
     if (!_resultCompleter.isCompleted) {
       _resultCompleter.completeError('Disposed before game finished');
     }
