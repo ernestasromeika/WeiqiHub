@@ -292,6 +292,33 @@ class PandaNetGameClient extends GameClient {
     return game;
   }
 
+  /// Send a direct match challenge to a specific player (for testing).
+  /// Uses the IGS `match` command with 1min main + 10min/25stones byo.
+  Future<Game> challengePlayer(String opponent) async {
+    final username = _userInfo.value?.username;
+    if (username == null || username.isEmpty) {
+      throw Exception('Not logged in');
+    }
+
+    if (!_tcpManager.isConnected) {
+      await _tcpManager.connect(username, _password.value);
+    }
+
+    _logger.info('Challenging player: $opponent');
+    _tcpManager.sendMatch(opponent, main: 1, overtime: 10);
+
+    final game = await _parseGameStart(
+      username: username,
+      fallbackTimeControl: _fallbackTimeControl,
+    );
+
+    if (game == null) {
+      throw Exception('Challenge failed or timed out');
+    }
+
+    return game;
+  }
+
   /// Shared helper: listens for game start messages from the TCP stream
   /// and constructs a PandanetGame when all required data is received.
   /// Used by both findGame() (after seek entry) and ongoingGame() (after load).

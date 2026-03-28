@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wqhub/audio/audio_controller.dart';
 import 'package:wqhub/game_client/user_info.dart';
 import 'package:wqhub/l10n/app_localizations.dart';
 import 'package:wqhub/play/automatch_page.dart';
 import 'package:wqhub/game_client/game_client.dart';
+import 'package:wqhub/game_client/pandanet/pandanet_game_client.dart';
 import 'package:wqhub/play/automatch_preset_list_tile.dart';
 import 'package:wqhub/play/game_page.dart';
 import 'package:wqhub/play/my_games_page.dart';
@@ -100,6 +102,14 @@ class _ServerLobbyPageState
 
     final automatchPresetList = ListView(
       children: <Widget>[
+        // Debug: direct challenge button (only in debug mode for Pandanet)
+        if (kDebugMode && widget.gameClient is PandaNetGameClient)
+          ListTile(
+            leading: const Icon(Icons.person_add),
+            title: const Text('Challenge player (debug)'),
+            subtitle: const Text('Send match request by username'),
+            onTap: () => _showChallengeDialog(context),
+          ),
         for (final preset in widget.gameClient.automatchPresets)
           AutomatchPresetListTile(
             preset: preset,
@@ -193,6 +203,71 @@ class _ServerLobbyPageState
         },
       ),
     );
+  }
+
+  void _showChallengeDialog(BuildContext context) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Challenge player'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Enter username',
+            labelText: 'Username',
+          ),
+          onSubmitted: (_) {
+            Navigator.pop(ctx);
+            _startChallenge(controller.text.trim());
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _startChallenge(controller.text.trim());
+            },
+            child: const Text('Challenge'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startChallenge(String opponent) {
+    if (opponent.isEmpty) return;
+    final client = widget.gameClient as PandaNetGameClient;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Challenging $opponent... waiting for accept')),
+    );
+
+    client.challengePlayer(opponent).then((game) {
+      if (context.mounted) {
+        AudioController().startToPlay();
+        Navigator.pushNamed(
+          context,
+          GamePage.routeName,
+          arguments: GameRouteArguments(
+            serverFeatures: widget.gameClient.serverFeatures,
+            game: game,
+            gameListener: null,
+          ),
+        );
+      }
+    }, onError: (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Challenge failed: $e')),
+        );
+      }
+    });
   }
 
   void onDisconnected() {
