@@ -160,22 +160,54 @@ class PandanetGame extends Game {
     }
 
     // Detect pass: server sends "N(B): Pass" or "N(W): Pass"
-    if (RegExp(r'\([BW]\):\s*[Pp]ass').hasMatch(text)) {
+    final passMatch = RegExp(r'(\d+)\s*\([BW]\):\s*[Pp]ass').firstMatch(text);
+    if (passMatch != null) {
+      final passMoveNum = int.parse(passMatch.group(1)!);
+      // Deduplicate passes just like regular moves
+      if (passMoveNum <= _lastProcessedMoveNum) {
+        _logger.info('Skipping duplicate pass $passMoveNum');
+        return;
+      }
+      _lastProcessedMoveNum = passMoveNum;
       _passCount++;
-      _logger.info('Pass detected. Count: $_passCount');
+      _logger.info('Pass detected (move $passMoveNum). Count: $_passCount');
       _moveController.add(null); // null = pass in the moves stream
+
+      // After 3 consecutive passes, enter scoring phase
+      if (_passCount >= 3 && !_inScoringPhase) {
+        _logger.info('3 passes detected. Entering scoring phase.');
+        _inScoringPhase = true;
+        _blackTimer.stop();
+        _whiteTimer.stop();
+        // Emit a non-final counting result to trigger GameState.counting in UI.
+        // The ownership grid is empty -- players will mark dead stones manually.
+        _countingResultController.add(CountingResult(
+          winner: wq.Color.black, // placeholder, will be determined by server
+          scoreLead: 0,
+          ownership: List.generate(
+              boardSize, (_) => List<wq.Color?>.filled(boardSize, null)),
+          isFinal: false,
+        ));
+      }
       return;
     }
 
-    // Detect scoring phase entry.
-    // IGS sends "You can check your scoring now" or similar after 3 passes.
-    // Also detect "has typed done" for opponent accepting score.
-    if (text.contains('check your scor') ||
-        text.contains('has entered scoring')) {
-      _logger.info('Scoring phase detected.');
+    // Detect scoring phase from server messages (fallback detection)
+    if (!_inScoringPhase &&
+        (text.contains('check your scor') ||
+            text.contains('has entered scoring') ||
+            text.contains('You can check'))) {
+      _logger.info('Scoring phase detected from server message.');
       _inScoringPhase = true;
-      _automaticCountingController
-          .add(true); // triggers GameState.counting in UI
+      _blackTimer.stop();
+      _whiteTimer.stop();
+      _countingResultController.add(CountingResult(
+        winner: wq.Color.black,
+        scoreLead: 0,
+        ownership: List.generate(
+            boardSize, (_) => List<wq.Color?>.filled(boardSize, null)),
+        isFinal: false,
+      ));
       return;
     }
 
@@ -510,13 +542,14 @@ class PandanetGame extends Game {
   @override
   Future<void> toggleManuallyRemovedStones(
       List<wq.Point> stones, bool removed) async {
-    // In IGS scoring, clicking a dead stone group sends each stone's
-    // coordinate to the server. The server toggles the group alive/dead.
-    for (final (row, col) in stones) {
-      final coord = formatCoordinates((row, col));
-      _logger.info('Toggle dead stone: $coord (removed=$removed)');
-      tcp.send(coord);
-    }
+    if (stones.isEmpty) return;
+    // On IGS during scoring, sending any coordinate in a group toggles
+    // the entire group's dead/alive status. Send just the first stone.
+    final (row, col) = stones.first;
+    final coord = formatCoordinates((row, col));
+    _logger.info(
+        'Toggle dead stone group at $coord (removed=$removed, group size=${stones.length})');
+    tcp.send(coord);
   }
 
   @override
@@ -533,9 +566,11 @@ class PandanetGame extends Game {
   @override
   Future<AutomaticCountingInfo> automaticCounting() async {
     // On IGS, scoring phase starts after 3 consecutive passes.
-    // This sends a pass and waits for the server to enter scoring phase.
+    // Send a pass to contribute to the sequence.
     tcp.send('pass');
-    return const AutomaticCountingInfo(timeout: Duration(seconds: 30));
+    // Short timeout -- the 3rd pass will trigger scoring phase
+    // automatically via _processLine detecting "Pass".
+    return const AutomaticCountingInfo(timeout: Duration(seconds: 5));
   }
 
   @override
