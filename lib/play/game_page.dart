@@ -161,11 +161,12 @@ class _GamePageState extends State<GamePage> {
       onGameResult(res);
       widget.gameListener?.onResult(widget.game.id, res);
     }, onError: onGameError);
-    widget.game
-        .automaticCountingResponses()
-        .forEach(onAgreeToAutomaticCounting);
-    widget.game.countingResultResponses().forEach(onAcceptCountingResult);
-    widget.game.countingResults().forEach(onCountingResult);
+    widget.game.automaticCountingResponses().listen(onAgreeToAutomaticCounting,
+        onError: (e) => debugPrint('ERROR in automaticCountingResponses: $e'));
+    widget.game.countingResultResponses().listen(onAcceptCountingResult,
+        onError: (e) => debugPrint('ERROR in countingResultResponses: $e'));
+    widget.game.countingResults().listen(onCountingResult,
+        onError: (e) => debugPrint('ERROR in countingResults: $e'));
 
     widget.gameListener?.onSetup(widget.game);
   }

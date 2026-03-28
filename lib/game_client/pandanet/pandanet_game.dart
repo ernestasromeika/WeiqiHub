@@ -180,12 +180,12 @@ class PandanetGame extends Game {
         _blackTimer.stop();
         _whiteTimer.stop();
         // Emit a non-final counting result to trigger GameState.counting in UI.
-        // The ownership grid is empty -- players will mark dead stones manually.
+        // Empty ownership list triggers _defaultOwnership() in game_page,
+        // which initializes ownership from the current board state.
         _countingResultController.add(CountingResult(
           winner: wq.Color.black, // placeholder, will be determined by server
           scoreLead: 0,
-          ownership: List.generate(
-              boardSize, (_) => List<wq.Color?>.filled(boardSize, null)),
+          ownership: const [],
           isFinal: false,
         ));
       }
@@ -204,8 +204,7 @@ class PandanetGame extends Game {
       _countingResultController.add(CountingResult(
         winner: wq.Color.black,
         scoreLead: 0,
-        ownership: List.generate(
-            boardSize, (_) => List<wq.Color?>.filled(boardSize, null)),
+        ownership: const [],
         isFinal: false,
       ));
       return;
@@ -218,8 +217,13 @@ class PandanetGame extends Game {
       return;
     }
 
-    // Detect undo request (resume play from scoring)
-    if (text.contains('undo') && _inScoringPhase) {
+    // Detect undo/resume play from scoring.
+    // IGS sends messages like "Game has been resumed" or "undone" when
+    // a player undoes during scoring phase.
+    if (_inScoringPhase &&
+        (text.contains('has been resumed') ||
+            text.contains('undone') ||
+            text.contains('typed undo'))) {
       _logger.info('Undo detected, resuming play from scoring.');
       _inScoringPhase = false;
       _passCount = 0;

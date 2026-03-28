@@ -908,4 +908,156 @@ void main() {
       expect(countingResults[0].isFinal, isTrue);
     });
   });
+
+  group('Scoring phase', () {
+    late FakePandanetTcpManager tcp;
+    late PandanetGame game;
+
+    setUp(() {
+      tcp = FakePandanetTcpManager();
+      game = _createGame(tcp, myColor: wq.Color.black);
+    });
+
+    test('3 consecutive passes trigger scoring phase', () async {
+      final countingResults = <dynamic>[];
+      game.countingResults().listen((cr) => countingResults.add(cr));
+
+      tcp.injectMessage('15 264(W): Pass');
+      await Future.delayed(Duration.zero);
+      expect(countingResults.length, 0);
+
+      tcp.injectMessage('15 265(B): Pass');
+      await Future.delayed(Duration.zero);
+      expect(countingResults.length, 0);
+
+      tcp.injectMessage('15 266(W): Pass');
+      await Future.delayed(Duration.zero);
+
+      expect(countingResults.length, 1);
+      expect(countingResults[0].isFinal, isFalse);
+      expect(countingResults[0].ownership, isEmpty);
+    });
+
+    test('regular move resets pass count', () async {
+      final countingResults = <dynamic>[];
+      game.countingResults().listen((cr) => countingResults.add(cr));
+
+      tcp.injectMessage('15 100(W): Pass');
+      await Future.delayed(Duration.zero);
+      tcp.injectMessage('15 101(B): Pass');
+      await Future.delayed(Duration.zero);
+
+      tcp.injectMessage('15 102(W): D4');
+      await Future.delayed(Duration.zero);
+
+      tcp.injectMessage('15 103(B): Pass');
+      await Future.delayed(Duration.zero);
+
+      expect(countingResults.length, 0);
+    });
+
+    test('duplicate pass is not double-counted', () async {
+      final countingResults = <dynamic>[];
+      game.countingResults().listen((cr) => countingResults.add(cr));
+
+      tcp.injectMessage('15 264(W): Pass');
+      tcp.injectMessage('15 264(W): Pass');
+      await Future.delayed(Duration.zero);
+
+      tcp.injectMessage('15 265(B): Pass');
+      await Future.delayed(Duration.zero);
+
+      expect(countingResults.length, 0);
+    });
+
+    test('pass emits null on moves stream', () async {
+      final moves = <wq.Move?>[];
+      game.moves().listen((mv) => moves.add(mv));
+
+      tcp.injectMessage('15 264(W): Pass');
+      await Future.delayed(Duration.zero);
+
+      expect(moves.length, 1);
+      expect(moves[0], isNull);
+    });
+
+    test('acceptCountingResult(true) sends done', () async {
+      await game.acceptCountingResult(true);
+      expect(tcp.sentCommands, contains('done'));
+    });
+
+    test('acceptCountingResult(false) sends undo', () async {
+      tcp.injectMessage('15 264(W): Pass');
+      tcp.injectMessage('15 265(B): Pass');
+      tcp.injectMessage('15 266(W): Pass');
+      await Future.delayed(Duration.zero);
+
+      await game.acceptCountingResult(false);
+      expect(tcp.sentCommands, contains('undo'));
+    });
+
+    test('toggleManuallyRemovedStones sends first stone coordinate', () async {
+      await game.toggleManuallyRemovedStones([(3, 15), (3, 16), (3, 17)], true);
+
+      // "say Hi!" + one coordinate
+      expect(tcp.sentCommands.length, 2);
+      expect(tcp.sentCommands.last, isNot(contains(' ')));
+    });
+
+    test('opponent done emits true on countingResultResponses', () async {
+      final responses = <bool>[];
+      game.countingResultResponses().listen((r) => responses.add(r));
+
+      tcp.injectMessage('15 264(W): Pass');
+      tcp.injectMessage('15 265(B): Pass');
+      tcp.injectMessage('15 266(W): Pass');
+      await Future.delayed(Duration.zero);
+
+      tcp.injectMessage('9 opponent has typed done');
+      await Future.delayed(Duration.zero);
+
+      expect(responses, [true]);
+    });
+
+    test('undo during scoring emits false on countingResultResponses',
+        () async {
+      final responses = <bool>[];
+      game.countingResultResponses().listen((r) => responses.add(r));
+
+      tcp.injectMessage('15 264(W): Pass');
+      tcp.injectMessage('15 265(B): Pass');
+      tcp.injectMessage('15 266(W): Pass');
+      await Future.delayed(Duration.zero);
+
+      tcp.injectMessage('9 Game has been resumed');
+      await Future.delayed(Duration.zero);
+
+      expect(responses, [false]);
+    });
+
+    test('final result after scoring completes the game', () async {
+      tcp.injectMessage('15 264(W): Pass');
+      tcp.injectMessage('15 265(B): Pass');
+      tcp.injectMessage('15 266(W): Pass');
+      await Future.delayed(Duration.zero);
+
+      tcp.injectMessage('The result is B+5.5');
+      await Future.delayed(Duration.zero);
+
+      final result = await game.result();
+      expect(result.winner, wq.Color.black);
+      expect(result.result, '5.5');
+    });
+
+    test('scoring phase not triggered before 3 passes', () async {
+      final countingResults = <dynamic>[];
+      game.countingResults().listen((cr) => countingResults.add(cr));
+
+      tcp.injectMessage('15 264(W): Pass');
+      tcp.injectMessage('15 265(B): Pass');
+      await Future.delayed(Duration.zero);
+
+      expect(countingResults.length, 0);
+    });
+  });
 }
