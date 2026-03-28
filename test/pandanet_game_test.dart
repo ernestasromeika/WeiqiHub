@@ -1195,9 +1195,9 @@ void main() {
   });
 
   // =========================================================================
-  // Scoring phase restoration
+  // Game restoration
   // =========================================================================
-  group('Scoring phase restoration', () {
+  group('Game restoration', () {
     late FakePandanetTcpManager tcp;
     late PandanetGame game;
 
@@ -1210,125 +1210,55 @@ void main() {
       tcp.tearDown();
     });
 
-    test('3 trailing passes in restored moves enter scoring phase', () async {
+    test('restored game does NOT enter scoring even with trailing passes',
+        () async {
+      // Server resets scoring state on adjournment -- players must pass again
       game = _createGame(tcp, myColor: wq.Color.black);
 
       final restored = <wq.Move>[
-        (col: wq.Color.black, p: (3, 15)), // regular move
-        (col: wq.Color.white, p: (15, 3)), // regular move
-        (col: wq.Color.black, p: (-1, -1)), // pass
-        (col: wq.Color.white, p: (-1, -1)), // pass
-        (col: wq.Color.black, p: (-1, -1)), // pass
+        (col: wq.Color.black, p: (3, 15)),
+        (col: wq.Color.white, p: (15, 3)),
+        (col: wq.Color.black, p: (-1, -1)),
+        (col: wq.Color.white, p: (-1, -1)),
+        (col: wq.Color.black, p: (-1, -1)),
       ];
       game.setRestoredMoves(restored);
 
-      expect(game.inScoringPhase, isTrue);
+      expect(game.inScoringPhase, isFalse);
     });
 
-    test('3 trailing passes emit CountingResult on next microtask', () async {
+    test('passCount is reset after restoration', () async {
       game = _createGame(tcp, myColor: wq.Color.black);
 
+      final restored = <wq.Move>[
+        (col: wq.Color.black, p: (3, 15)),
+        (col: wq.Color.black, p: (-1, -1)),
+        (col: wq.Color.white, p: (-1, -1)),
+        (col: wq.Color.black, p: (-1, -1)),
+      ];
+      game.setRestoredMoves(restored);
+
+      // Need 3 fresh passes to enter scoring
       final countingResults = <dynamic>[];
       game.countingResults().listen((cr) => countingResults.add(cr));
 
-      final restored = <wq.Move>[
-        (col: wq.Color.black, p: (3, 15)),
-        (col: wq.Color.white, p: (15, 3)),
-        (col: wq.Color.black, p: (-1, -1)),
-        (col: wq.Color.white, p: (-1, -1)),
-        (col: wq.Color.black, p: (-1, -1)),
-      ];
-      game.setRestoredMoves(restored);
-
-      // CountingResult is emitted via Future.microtask, so wait for it
+      tcp.injectMessage('15 10(W): Pass');
+      tcp.injectMessage('15 11(B): Pass');
       await Future.delayed(Duration.zero);
+      expect(countingResults.length, 0); // only 2 passes
 
-      expect(countingResults.length, 1);
-      expect(countingResults[0].isFinal, isFalse);
-      expect(countingResults[0].ownership, isEmpty);
-    });
-
-    test('2 trailing passes do NOT enter scoring phase', () async {
-      game = _createGame(tcp, myColor: wq.Color.black);
-
-      final restored = <wq.Move>[
-        (col: wq.Color.black, p: (3, 15)),
-        (col: wq.Color.white, p: (15, 3)),
-        (col: wq.Color.black, p: (-1, -1)),
-        (col: wq.Color.white, p: (-1, -1)),
-      ];
-      game.setRestoredMoves(restored);
-
-      expect(game.inScoringPhase, isFalse);
-    });
-
-    test('no trailing passes do not enter scoring phase', () async {
-      game = _createGame(tcp, myColor: wq.Color.black);
-
-      final restored = <wq.Move>[
-        (col: wq.Color.black, p: (3, 15)),
-        (col: wq.Color.white, p: (15, 3)),
-      ];
-      game.setRestoredMoves(restored);
-
-      expect(game.inScoringPhase, isFalse);
+      tcp.injectMessage('15 12(W): Pass');
+      await Future.delayed(Duration.zero);
+      expect(countingResults.length, 1); // 3 fresh passes → scoring
     });
 
     test('empty restored moves do not crash', () async {
       game = _createGame(tcp, myColor: wq.Color.black);
-
       game.setRestoredMoves([]);
       expect(game.inScoringPhase, isFalse);
     });
 
-    test('pass in middle followed by regular move does not count', () async {
-      game = _createGame(tcp, myColor: wq.Color.black);
-
-      final restored = <wq.Move>[
-        (col: wq.Color.black, p: (-1, -1)), // pass
-        (col: wq.Color.white, p: (-1, -1)), // pass
-        (col: wq.Color.black, p: (-1, -1)), // pass
-        (col: wq.Color.white, p: (15, 3)), // regular move after passes
-      ];
-      game.setRestoredMoves(restored);
-
-      expect(game.inScoringPhase, isFalse);
-    });
-
-    test('restored scoring phase allows subsequent done/result flow', () async {
-      game = _createGame(tcp, myColor: wq.Color.black);
-
-      final restored = <wq.Move>[
-        (col: wq.Color.black, p: (3, 15)),
-        (col: wq.Color.white, p: (15, 3)),
-        (col: wq.Color.black, p: (-1, -1)),
-        (col: wq.Color.white, p: (-1, -1)),
-        (col: wq.Color.black, p: (-1, -1)),
-      ];
-      game.setRestoredMoves(restored);
-      await Future.delayed(Duration.zero);
-
-      expect(game.inScoringPhase, isTrue);
-
-      // Opponent sends done
-      final responses = <bool>[];
-      game.countingResultResponses().listen((r) => responses.add(r));
-
-      tcp.injectMessage('9 opponent has typed done');
-      await Future.delayed(Duration.zero);
-      expect(responses, [true]);
-
-      // Final result
-      tcp.injectMessage('The result is B+5.5');
-      await Future.delayed(Duration.zero);
-
-      final result = await game.result();
-      expect(result.winner, wq.Color.black);
-      expect(result.result, '5.5');
-    });
-
-    test('lastProcessedMoveNum is correct after restoration with passes',
-        () async {
+    test('lastProcessedMoveNum is correct after restoration', () async {
       game = _createGame(tcp, myColor: wq.Color.black);
 
       final restored = <wq.Move>[
@@ -1340,17 +1270,15 @@ void main() {
       ];
       game.setRestoredMoves(restored);
 
-      // 5 moves total → _lastProcessedMoveNum = 4
-      // Next live move should be move 5 or higher
       final moves = <wq.Move?>[];
       game.moves().listen((m) => moves.add(m));
 
       // Move 4 should be skipped (already restored)
       tcp.injectMessage('15   4(W): K10');
       await Future.delayed(Duration.zero);
-      expect(moves, isEmpty); // skipped
+      expect(moves, isEmpty);
 
-      // Move 5 should be accepted (new live move)
+      // Move 5 should be accepted
       tcp.injectMessage('15   5(W): L10');
       await Future.delayed(Duration.zero);
       expect(moves.length, 1);

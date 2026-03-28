@@ -546,49 +546,17 @@ class PandanetGame extends Game {
   /// Called before the UI subscribes, so moves appear on the board via
   /// GamePage's previousMoves iteration.
   ///
-  /// Also detects if the game was in scoring phase (3+ trailing passes)
-  /// and enters scoring mode accordingly. The UI will receive the
-  /// initial CountingResult via the countingResults stream once it
-  /// subscribes.
+  /// Note: After adjournment, the server resets to play state even if
+  /// the game was in scoring phase. Players need to pass again to
+  /// re-enter scoring. So we do NOT restore scoring phase here.
   void setRestoredMoves(List<wq.Move> moves) {
     previousMoves.addAll(moves);
     _lastProcessedMoveNum = moves.length - 1;
     _restoringMoves = false;
-
-    // Count trailing passes to detect scoring phase.
-    // Passes are represented as moves with p == (-1, -1).
-    int trailingPasses = 0;
-    for (int i = moves.length - 1; i >= 0; i--) {
-      final (r, c) = moves[i].p;
-      if (r == -1 && c == -1) {
-        trailingPasses++;
-      } else {
-        break;
-      }
-    }
+    _passCount = 0; // Server resets scoring state on adjournment
 
     _logger.info(
-        'Set ${moves.length} restored moves. Last move num: $_lastProcessedMoveNum. '
-        'Trailing passes: $trailingPasses');
-
-    if (trailingPasses >= 3 && !_inScoringPhase) {
-      _logger.info(
-          'Restored game has $trailingPasses trailing passes. Entering scoring phase.');
-      _inScoringPhase = true;
-      _passCount = trailingPasses;
-      _blackTimer.stop();
-      _whiteTimer.stop();
-      // Schedule the CountingResult emission for the next microtask so the
-      // UI has time to subscribe to the stream after construction.
-      Future.microtask(() {
-        _countingResultController.add(CountingResult(
-          winner: wq.Color.black, // placeholder
-          scoreLead: 0,
-          ownership: const [],
-          isFinal: false,
-        ));
-      });
-    }
+        'Set ${moves.length} restored moves. Last move num: $_lastProcessedMoveNum');
   }
 
   @override
