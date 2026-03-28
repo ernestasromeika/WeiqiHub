@@ -439,6 +439,15 @@ class PandaNetGameClient extends GameClient {
 
     final moves = <wq.Move>[];
     for (final line in lines) {
+      // Detect passes: "N(B): Pass" or "N(W): Pass"
+      final passMatch =
+          RegExp(r'\d+\s*\(\s*([BW])\s*\):\s*[Pp]ass').firstMatch(line);
+      if (passMatch != null) {
+        final col = passMatch.group(1) == 'B' ? wq.Color.black : wq.Color.white;
+        moves.add((col: col, p: (-1, -1))); // pass sentinel
+        continue;
+      }
+
       final match = RegExp(r'\d+\s*\(\s*([BW])\s*\):\s*([A-Ta-t]\d{1,2})')
           .firstMatch(line);
       if (match != null) {

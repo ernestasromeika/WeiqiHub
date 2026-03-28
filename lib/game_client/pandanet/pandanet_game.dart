@@ -25,6 +25,16 @@ class PandanetGame extends Game {
   bool _inScoringPhase = false;
   int _passCount = 0;
 
+  /// Points that the opponent has marked as dead during scoring.
+  /// Tracked so we can log and potentially display them.
+  final Set<wq.Point> _remoteDeadPoints = {};
+
+  /// Whether the game is currently in the scoring phase.
+  bool get inScoringPhase => _inScoringPhase;
+
+  /// Points that the remote opponent has marked as dead.
+  Set<wq.Point> get remoteDeadPoints => Set.unmodifiable(_remoteDeadPoints);
+
   late final GameTimer _blackTimer;
   late final GameTimer _whiteTimer;
 
@@ -232,11 +242,28 @@ class PandanetGame extends Game {
     }
 
     // Detect dead stone removal by opponent: "Removing at <coord>"
-    // This is informational -- the board state will be reflected in the final result
-    if (text.contains('emoving at') && _inScoringPhase) {
-      _logger.info('Opponent removed dead stone: $text');
-      // We don't need to act on this -- the UI handles local dead stone marking
-      return;
+    // or un-removal: "Unemoving at <coord>"
+    if (_inScoringPhase) {
+      final removingMatch =
+          RegExp(r'(?:R|r)emoving at\s+([A-Ta-t]\d{1,2})').firstMatch(text);
+      if (removingMatch != null) {
+        final coord = removingMatch.group(1)!;
+        final point = parseCoordinate(coord);
+        _remoteDeadPoints.add(point);
+        _logger.info(
+            'Opponent marked dead stone at $coord ($point). Total remote dead: ${_remoteDeadPoints.length}');
+        return;
+      }
+      final unremovingMatch =
+          RegExp(r'(?:U|u)nemoving at\s+([A-Ta-t]\d{1,2})').firstMatch(text);
+      if (unremovingMatch != null) {
+        final coord = unremovingMatch.group(1)!;
+        final point = parseCoordinate(coord);
+        _remoteDeadPoints.remove(point);
+        _logger.info(
+            'Opponent unmarked dead stone at $coord ($point). Total remote dead: ${_remoteDeadPoints.length}');
+        return;
+      }
     }
 
     // Parse TIME messages:
@@ -518,12 +545,50 @@ class PandanetGame extends Game {
   /// Add restored moves to previousMoves and update the move counter.
   /// Called before the UI subscribes, so moves appear on the board via
   /// GamePage's previousMoves iteration.
+  ///
+  /// Also detects if the game was in scoring phase (3+ trailing passes)
+  /// and enters scoring mode accordingly. The UI will receive the
+  /// initial CountingResult via the countingResults stream once it
+  /// subscribes.
   void setRestoredMoves(List<wq.Move> moves) {
     previousMoves.addAll(moves);
     _lastProcessedMoveNum = moves.length - 1;
     _restoringMoves = false;
+
+    // Count trailing passes to detect scoring phase.
+    // Passes are represented as moves with p == (-1, -1).
+    int trailingPasses = 0;
+    for (int i = moves.length - 1; i >= 0; i--) {
+      final (r, c) = moves[i].p;
+      if (r == -1 && c == -1) {
+        trailingPasses++;
+      } else {
+        break;
+      }
+    }
+
     _logger.info(
-        'Set ${moves.length} restored moves. Last move num: $_lastProcessedMoveNum');
+        'Set ${moves.length} restored moves. Last move num: $_lastProcessedMoveNum. '
+        'Trailing passes: $trailingPasses');
+
+    if (trailingPasses >= 3 && !_inScoringPhase) {
+      _logger.info(
+          'Restored game has $trailingPasses trailing passes. Entering scoring phase.');
+      _inScoringPhase = true;
+      _passCount = trailingPasses;
+      _blackTimer.stop();
+      _whiteTimer.stop();
+      // Schedule the CountingResult emission for the next microtask so the
+      // UI has time to subscribe to the stream after construction.
+      Future.microtask(() {
+        _countingResultController.add(CountingResult(
+          winner: wq.Color.black, // placeholder
+          scoreLead: 0,
+          ownership: const [],
+          isFinal: false,
+        ));
+      });
+    }
   }
 
   @override

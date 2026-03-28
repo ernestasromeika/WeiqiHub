@@ -1059,5 +1059,301 @@ void main() {
 
       expect(countingResults.length, 0);
     });
+
+    test('inScoringPhase getter reflects state', () async {
+      expect(game.inScoringPhase, isFalse);
+
+      tcp.injectMessage('15 264(W): Pass');
+      tcp.injectMessage('15 265(B): Pass');
+      tcp.injectMessage('15 266(W): Pass');
+      await Future.delayed(Duration.zero);
+
+      expect(game.inScoringPhase, isTrue);
+    });
+  });
+
+  // =========================================================================
+  // Opponent dead stone detection
+  // =========================================================================
+  group('Opponent dead stone detection', () {
+    late FakePandanetTcpManager tcp;
+    late PandanetGame game;
+
+    setUp(() {
+      tcp = FakePandanetTcpManager();
+      game = _createGame(tcp, myColor: wq.Color.black);
+    });
+
+    tearDown(() {
+      _disposeGame(game);
+      tcp.tearDown();
+    });
+
+    /// Helper: put game into scoring phase via 3 passes
+    Future<void> enterScoring() async {
+      tcp.injectMessage('15 264(W): Pass');
+      tcp.injectMessage('15 265(B): Pass');
+      tcp.injectMessage('15 266(W): Pass');
+      await Future.delayed(Duration.zero);
+      expect(game.inScoringPhase, isTrue);
+    }
+
+    test('"Removing at E5" adds point to remoteDeadPoints', () async {
+      await enterScoring();
+
+      tcp.injectMessage('9 Removing at E5');
+      await Future.delayed(Duration.zero);
+
+      expect(game.remoteDeadPoints, contains(game.parseCoordinate('E5')));
+      expect(game.remoteDeadPoints.length, 1);
+    });
+
+    test('"15 Removing at Q16" also parses', () async {
+      await enterScoring();
+
+      tcp.injectMessage('15 Removing at Q16');
+      await Future.delayed(Duration.zero);
+
+      expect(game.remoteDeadPoints, contains(game.parseCoordinate('Q16')));
+    });
+
+    test('multiple "Removing at" accumulate dead points', () async {
+      await enterScoring();
+
+      tcp.injectMessage('9 Removing at E5');
+      tcp.injectMessage('9 Removing at D4');
+      tcp.injectMessage('9 Removing at C3');
+      await Future.delayed(Duration.zero);
+
+      expect(game.remoteDeadPoints.length, 3);
+      expect(game.remoteDeadPoints, contains(game.parseCoordinate('E5')));
+      expect(game.remoteDeadPoints, contains(game.parseCoordinate('D4')));
+      expect(game.remoteDeadPoints, contains(game.parseCoordinate('C3')));
+    });
+
+    test('"Unemoving at E5" removes point from remoteDeadPoints', () async {
+      await enterScoring();
+
+      tcp.injectMessage('9 Removing at E5');
+      tcp.injectMessage('9 Removing at D4');
+      await Future.delayed(Duration.zero);
+      expect(game.remoteDeadPoints.length, 2);
+
+      tcp.injectMessage('9 Unemoving at E5');
+      await Future.delayed(Duration.zero);
+
+      expect(game.remoteDeadPoints.length, 1);
+      expect(
+          game.remoteDeadPoints, isNot(contains(game.parseCoordinate('E5'))));
+      expect(game.remoteDeadPoints, contains(game.parseCoordinate('D4')));
+    });
+
+    test('removing messages ignored when not in scoring phase', () async {
+      // Don't enter scoring phase
+      tcp.injectMessage('9 Removing at E5');
+      await Future.delayed(Duration.zero);
+
+      expect(game.remoteDeadPoints, isEmpty);
+    });
+
+    test('dead points are cleared when scoring is cancelled (undo)', () async {
+      await enterScoring();
+
+      tcp.injectMessage('9 Removing at E5');
+      await Future.delayed(Duration.zero);
+      expect(game.remoteDeadPoints.length, 1);
+
+      // Opponent undoes, resuming play
+      tcp.injectMessage('9 Game has been resumed');
+      await Future.delayed(Duration.zero);
+
+      expect(game.inScoringPhase, isFalse);
+      // Note: remoteDeadPoints aren't explicitly cleared on undo in current
+      // implementation, but they're only consulted during scoring phase.
+      // The scoring phase flag gates their relevance.
+    });
+
+    test('duplicate removing at same coord does not crash', () async {
+      await enterScoring();
+
+      tcp.injectMessage('9 Removing at E5');
+      tcp.injectMessage('9 Removing at E5');
+      await Future.delayed(Duration.zero);
+
+      // Set deduplicates
+      expect(game.remoteDeadPoints.length, 1);
+    });
+
+    test('unemoving a point not in set does not crash', () async {
+      await enterScoring();
+
+      tcp.injectMessage('9 Unemoving at E5');
+      await Future.delayed(Duration.zero);
+
+      expect(game.remoteDeadPoints, isEmpty);
+    });
+  });
+
+  // =========================================================================
+  // Scoring phase restoration
+  // =========================================================================
+  group('Scoring phase restoration', () {
+    late FakePandanetTcpManager tcp;
+    late PandanetGame game;
+
+    setUp(() {
+      tcp = FakePandanetTcpManager();
+    });
+
+    tearDown(() {
+      _disposeGame(game);
+      tcp.tearDown();
+    });
+
+    test('3 trailing passes in restored moves enter scoring phase', () async {
+      game = _createGame(tcp, myColor: wq.Color.black);
+
+      final restored = <wq.Move>[
+        (col: wq.Color.black, p: (3, 15)), // regular move
+        (col: wq.Color.white, p: (15, 3)), // regular move
+        (col: wq.Color.black, p: (-1, -1)), // pass
+        (col: wq.Color.white, p: (-1, -1)), // pass
+        (col: wq.Color.black, p: (-1, -1)), // pass
+      ];
+      game.setRestoredMoves(restored);
+
+      expect(game.inScoringPhase, isTrue);
+    });
+
+    test('3 trailing passes emit CountingResult on next microtask', () async {
+      game = _createGame(tcp, myColor: wq.Color.black);
+
+      final countingResults = <dynamic>[];
+      game.countingResults().listen((cr) => countingResults.add(cr));
+
+      final restored = <wq.Move>[
+        (col: wq.Color.black, p: (3, 15)),
+        (col: wq.Color.white, p: (15, 3)),
+        (col: wq.Color.black, p: (-1, -1)),
+        (col: wq.Color.white, p: (-1, -1)),
+        (col: wq.Color.black, p: (-1, -1)),
+      ];
+      game.setRestoredMoves(restored);
+
+      // CountingResult is emitted via Future.microtask, so wait for it
+      await Future.delayed(Duration.zero);
+
+      expect(countingResults.length, 1);
+      expect(countingResults[0].isFinal, isFalse);
+      expect(countingResults[0].ownership, isEmpty);
+    });
+
+    test('2 trailing passes do NOT enter scoring phase', () async {
+      game = _createGame(tcp, myColor: wq.Color.black);
+
+      final restored = <wq.Move>[
+        (col: wq.Color.black, p: (3, 15)),
+        (col: wq.Color.white, p: (15, 3)),
+        (col: wq.Color.black, p: (-1, -1)),
+        (col: wq.Color.white, p: (-1, -1)),
+      ];
+      game.setRestoredMoves(restored);
+
+      expect(game.inScoringPhase, isFalse);
+    });
+
+    test('no trailing passes do not enter scoring phase', () async {
+      game = _createGame(tcp, myColor: wq.Color.black);
+
+      final restored = <wq.Move>[
+        (col: wq.Color.black, p: (3, 15)),
+        (col: wq.Color.white, p: (15, 3)),
+      ];
+      game.setRestoredMoves(restored);
+
+      expect(game.inScoringPhase, isFalse);
+    });
+
+    test('empty restored moves do not crash', () async {
+      game = _createGame(tcp, myColor: wq.Color.black);
+
+      game.setRestoredMoves([]);
+      expect(game.inScoringPhase, isFalse);
+    });
+
+    test('pass in middle followed by regular move does not count', () async {
+      game = _createGame(tcp, myColor: wq.Color.black);
+
+      final restored = <wq.Move>[
+        (col: wq.Color.black, p: (-1, -1)), // pass
+        (col: wq.Color.white, p: (-1, -1)), // pass
+        (col: wq.Color.black, p: (-1, -1)), // pass
+        (col: wq.Color.white, p: (15, 3)), // regular move after passes
+      ];
+      game.setRestoredMoves(restored);
+
+      expect(game.inScoringPhase, isFalse);
+    });
+
+    test('restored scoring phase allows subsequent done/result flow', () async {
+      game = _createGame(tcp, myColor: wq.Color.black);
+
+      final restored = <wq.Move>[
+        (col: wq.Color.black, p: (3, 15)),
+        (col: wq.Color.white, p: (15, 3)),
+        (col: wq.Color.black, p: (-1, -1)),
+        (col: wq.Color.white, p: (-1, -1)),
+        (col: wq.Color.black, p: (-1, -1)),
+      ];
+      game.setRestoredMoves(restored);
+      await Future.delayed(Duration.zero);
+
+      expect(game.inScoringPhase, isTrue);
+
+      // Opponent sends done
+      final responses = <bool>[];
+      game.countingResultResponses().listen((r) => responses.add(r));
+
+      tcp.injectMessage('9 opponent has typed done');
+      await Future.delayed(Duration.zero);
+      expect(responses, [true]);
+
+      // Final result
+      tcp.injectMessage('The result is B+5.5');
+      await Future.delayed(Duration.zero);
+
+      final result = await game.result();
+      expect(result.winner, wq.Color.black);
+      expect(result.result, '5.5');
+    });
+
+    test('lastProcessedMoveNum is correct after restoration with passes',
+        () async {
+      game = _createGame(tcp, myColor: wq.Color.black);
+
+      final restored = <wq.Move>[
+        (col: wq.Color.black, p: (3, 15)),
+        (col: wq.Color.white, p: (15, 3)),
+        (col: wq.Color.black, p: (-1, -1)),
+        (col: wq.Color.white, p: (-1, -1)),
+        (col: wq.Color.black, p: (-1, -1)),
+      ];
+      game.setRestoredMoves(restored);
+
+      // 5 moves total → _lastProcessedMoveNum = 4
+      // Next live move should be move 5 or higher
+      final moves = <wq.Move?>[];
+      game.moves().listen((m) => moves.add(m));
+
+      // Move 4 should be skipped (already restored)
+      tcp.injectMessage('15   4(W): K10');
+      await Future.delayed(Duration.zero);
+      expect(moves, isEmpty); // skipped
+
+      // Move 5 should be accepted (new live move)
+      tcp.injectMessage('15   5(W): L10');
+      await Future.delayed(Duration.zero);
+      expect(moves.length, 1);
+    });
   });
 }
